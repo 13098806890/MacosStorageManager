@@ -849,19 +849,14 @@ private struct CleanupRuleRow: View {
                 }
 
                 if subfoldersExpanded && !state.subfolders.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(state.subfolders) { subfolder in
-                            ScannedSubfolderRow(
-                                subfolder: subfolder,
-                                toggleSelection: toggleSubfolderSelection,
-                                isSelected: isSubfolderSelected
-                            )
-                        }
-                    }
-                    .padding(.leading, 12)
+                    ScannedSubfolderList(
+                        folders: state.subfolders,
+                        indentation: 12,
+                        rowSpacing: 10,
+                        toggleSelection: toggleSubfolderSelection,
+                        isSelected: isSubfolderSelected
+                    )
                     .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -874,6 +869,53 @@ private struct CleanupRuleRow: View {
                 Label("扫描后可在底部选择清理", systemImage: "info.circle")
             }
         }
+    }
+}
+
+private struct ScannedSubfolderList: View {
+    @State private var visibleCount = 10
+
+    let folders: [ScannedSubfolder]
+    let indentation: CGFloat
+    let rowSpacing: CGFloat
+    let toggleSelection: (ScannedSubfolder) -> Void
+    let isSelected: (String) -> Bool
+
+    private var sortedFolders: [ScannedSubfolder] {
+        folders.sorted {
+            if $0.size != $1.size { return $0.size > $1.size }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        let displayedFolders = Array(sortedFolders.prefix(visibleCount))
+        VStack(alignment: .leading, spacing: rowSpacing) {
+            ForEach(displayedFolders) { folder in
+                ScannedSubfolderRow(
+                    subfolder: folder,
+                    toggleSelection: toggleSelection,
+                    isSelected: isSelected
+                )
+            }
+
+            if displayedFolders.count < sortedFolders.count {
+                HStack(spacing: 16) {
+                    Button("Load more (+10)") {
+                        visibleCount = min(visibleCount + 10, sortedFolders.count)
+                    }
+                    Button("Load all (\(sortedFolders.count))") {
+                        visibleCount = sortedFolders.count
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.leading, indentation)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -939,12 +981,13 @@ private struct ScannedSubfolderRow: View {
                 .accessibilityLabel(isSelected(subfolder.relativePath) ? "取消选择子文件夹 \(subfolder.relativePath)" : "选择清理子文件夹 \(subfolder.relativePath)")
             }
             if isExpanded && !subfolder.subfolders.isEmpty {
-                VStack(alignment: .leading, spacing: 9) {
-                    ForEach(subfolder.subfolders) { child in
-                        ScannedSubfolderRow(subfolder: child, toggleSelection: toggleSelection, isSelected: isSelected)
-                    }
-                }
-                .padding(.leading, 16)
+                ScannedSubfolderList(
+                    folders: subfolder.subfolders,
+                    indentation: 16,
+                    rowSpacing: 9,
+                    toggleSelection: toggleSelection,
+                    isSelected: isSelected
+                )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
