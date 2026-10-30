@@ -1,0 +1,59 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* CleanUpForMacOSApp.swift */; };
+		A10000000000000000000002 /* CleanupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* CleanupStore.swift */; };
+		A10000000000000000000003 /* cleanup-rules.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* cleanup-rules.json */; };
+		A10000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* CleanUpForMacOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanUpForMacOSApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* CleanupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* cleanup-rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cleanup-rules.json"; sourceTree = "<group>"; };
+		A20000000000000000000004 /* CleanUpForMacOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CleanUpForMacOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A30000000000000000000001 = {isa = PBXGroup; children = (A30000000000000000000002 /* Sources */, A30000000000000000000003 /* Config */, A30000000000000000000004 /* Products */,); sourceTree = "<group>"; };
+		A30000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (A20000000000000000000001 /* CleanUpForMacOSApp.swift */, A20000000000000000000002 /* CleanupStore.swift */,); path = Sources; sourceTree = "<group>"; };
+		A30000000000000000000003 /* Config */ = {isa = PBXGroup; children = (A20000000000000000000003 /* cleanup-rules.json */, A20000000000000000000005 /* PrivacyInfo.xcprivacy */,); path = Config; sourceTree = "<group>"; };
+		A30000000000000000000004 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000004 /* CleanUpForMacOS.app */,); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A40000000000000000000001 /* CleanUpForMacOS */ = {isa = PBXNativeTarget; buildConfigurationList = A50000000000000000000001 /* Build configuration list for PBXNativeTarget "CleanUpForMacOS" */; buildPhases = (A60000000000000000000001 /* Sources */, A60000000000000000000002 /* Resources */,); buildRules = (); dependencies = (); name = CleanUpForMacOS; productName = CleanUpForMacOS; productReference = A20000000000000000000004 /* CleanUpForMacOS.app */; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A70000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2700; TargetAttributes = {A40000000000000000000001 = {CreatedOnToolsVersion = 27.0; }; }; }; buildConfigurationList = A50000000000000000000002 /* Build configuration list for PBXProject "CleanUpForMacOS" */; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A30000000000000000000001; productRefGroup = A30000000000000000000004 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (A40000000000000000000001 /* CleanUpForMacOS */,); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A60000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000003 /* cleanup-rules.json in Resources */, A10000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */, A10000000000000000000002 /* CleanupStore.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A80000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = org.cleanupformacos.app; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A80000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = org.cleanupformacos.app; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; }; name = Release; };
+		A80000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {MACOSX_DEPLOYMENT_TARGET = 14.0; }; name = Debug; };
+		A80000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {MACOSX_DEPLOYMENT_TARGET = 14.0; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A50000000000000000000001 /* Build configuration list for PBXNativeTarget "CleanUpForMacOS" */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000001 /* Debug */, A80000000000000000000002 /* Release */,); defaultConfigurationName = Release; };
+		A50000000000000000000002 /* Build configuration list for PBXProject "CleanUpForMacOS" */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000003 /* Debug */, A80000000000000000000004 /* Release */,); defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A70000000000000000000001 /* Project object */;
+}

@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "configVersion": "2026.10.0",
+  "role": "programmer",
+  "rules": [
+    {
+      "id": "xcode-derived-data",
+      "role": "programmer",
+      "title": "Xcode DerivedData",
+      "path": "$HOME/Library/Developer/Xcode/DerivedData",
+      "summary": "Xcode 的构建产物、索引和中间文件。",
+      "impact": "删除后，Xcode 会在后续构建时重新生成相关文件；首次构建和代码索引可能变慢。不会删除项目源代码。",
+      "risk": "low",
+      "category": "Xcode"
+    },
+    {
+      "id": "xcode-documentation-cache",
+      "role": "programmer",
+      "title": "Xcode Documentation Cache",
+      "path": "$HOME/Library/Developer/Xcode/DocumentationCache",
+      "summary": "Xcode 下载和生成的开发者文档缓存。",
+      "impact": "需要查看相关文档时，Xcode 可能重新下载或生成缓存。",
+      "risk": "low",
+      "category": "Xcode"
+    },
+    {
+      "id": "xcode-device-support-cache",
+      "role": "programmer",
+      "title": "Xcode Device Support Cache",
+      "path": "$HOME/Library/Developer/Xcode/iOS DeviceSupport",
+      "summary": "Xcode 为连接过的 iPhone 和 iPad 保存的调试支持文件。",
+      "impact": "重新连接对应设备调试时，Xcode 可能需要再次准备支持文件；首次连接和调试会变慢。",
+      "risk": "medium",
+      "category": "Xcode"
+    },
+    {
+      "id": "core-simulator-caches",
+      "role": "programmer",
+      "title": "CoreSimulator Caches",
+      "path": "$HOME/Library/Developer/CoreSimulator/Caches",
+      "summary": "iOS 模拟器运行时使用的缓存目录。",
+      "impact": "模拟器可能重新生成缓存，之后首次启动或运行会变慢。此规则不包含模拟器设备数据、已安装应用或运行时本体。",
+      "risk": "medium",
+      "category": "Xcode"
+    },
+    {
+      "id": "swiftpm-cache",
+      "role": "programmer",
+      "title": "Swift Package Manager Cache",
+      "path": "$HOME/Library/Caches/org.swift.swiftpm",
+      "summary": "Swift Package Manager 下载和解析依赖时使用的缓存。",
+      "impact": "之后解析或构建 Swift 包时可能需要重新下载依赖，离线构建能力可能暂时受影响。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "npm-cache",
+      "role": "programmer",
+      "title": "npm Cache",
+      "path": "$HOME/.npm/_cacache",
+      "summary": "npm 下载的包内容缓存，不包含项目目录中的 node_modules。",
+      "impact": "之后安装 npm 依赖时可能需要重新下载包；离线安装可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "yarn-cache",
+      "role": "programmer",
+      "title": "Yarn Cache",
+      "path": "$HOME/Library/Caches/Yarn",
+      "summary": "Yarn 下载的包缓存，不包含项目目录中的依赖安装结果。",
+      "impact": "之后安装 Yarn 依赖时可能需要重新下载包；离线安装可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "pip-cache",
+      "role": "programmer",
+      "title": "pip Cache",
+      "path": "$HOME/Library/Caches/pip",
+      "summary": "Python pip 下载和构建的包缓存。",
+      "impact": "之后安装 Python 依赖时可能需要重新下载或构建包；离线安装可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "cocoapods-cache",
+      "role": "programmer",
+      "title": "CocoaPods Cache",
+      "path": "$HOME/Library/Caches/CocoaPods",
+      "summary": "CocoaPods 下载的依赖归档和缓存。",
+      "impact": "之后执行 pod install 时可能需要重新下载依赖；离线安装可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "go-build-cache",
+      "role": "programmer",
+      "title": "Go Build Cache",
+      "path": "$HOME/Library/Caches/go-build",
+      "summary": "Go 编译器保存的构建结果缓存。",
+      "impact": "之后构建 Go 项目时，未命中的内容会重新编译；首次构建可能变慢。",
+      "risk": "low",
+      "category": "包管理器"
+    },
+    {
+      "id": "rust-registry-archives",
+      "role": "programmer",
+      "title": "Cargo Registry Archives",
+      "path": "$HOME/.cargo/registry/cache",
+      "summary": "Rust Cargo 下载的 crate 压缩包缓存，不包含项目源代码。",
+      "impact": "之后构建 Rust 项目时可能需要重新下载 crate；离线构建可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "homebrew-download-cache",
+      "role": "programmer",
+      "title": "Homebrew Download Cache",
+      "path": "$HOME/Library/Caches/Homebrew",
+      "summary": "Homebrew 下载的软件包归档和临时构建文件。",
+      "impact": "之后安装或重装软件时可能需要重新下载；离线安装可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "gradle-cache",
+      "role": "programmer",
+      "title": "Gradle Cache",
+      "path": "$HOME/.gradle/caches",
+      "summary": "Gradle 下载的依赖和项目构建缓存，不包含项目源文件。",
+      "impact": "Gradle 后续可能重新下载依赖并重建转换结果；离线构建可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    }
+  ]
+}
