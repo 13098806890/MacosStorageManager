@@ -28,11 +28,19 @@ private struct CleanupHomeView: View {
     }
 
     private var categories: [String] {
-        ["全部", "模拟器管理", "配置管理"] + Array(Set(store.rules.map { $0.rule.category })).filter { $0 != "模拟器管理" }.sorted()
+        ["全部", "模拟器管理", "配置管理"] + Array(Set(availableRules.map { $0.rule.category })).filter { $0 != "模拟器管理" }.sorted()
+    }
+
+    private var availableRules: [ConfiguredCleanupRule] {
+        store.rules.filter { configuredRule in
+            guard let path = configuredRule.rule.resolvedPath?.path else { return false }
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
     }
 
     private var visibleRules: [ConfiguredCleanupRule] {
-        (selectedCategory ?? "全部") == "全部" ? store.rules : store.rules.filter { $0.rule.category == selectedCategory }
+        (selectedCategory ?? "全部") == "全部" ? availableRules : availableRules.filter { $0.rule.category == selectedCategory }
     }
 
     var body: some View {
@@ -146,7 +154,7 @@ private struct CleanupHomeView: View {
             }
             Spacer(minLength: 12)
             Button {
-                Task { await store.scanAll(rules: store.rules) }
+                Task { await store.scanAll(rules: visibleRules) }
             } label: {
                 Label("扫描已启用规则", systemImage: "arrow.clockwise")
             }
@@ -301,7 +309,7 @@ private struct ConfigurationManagerView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("配置库").font(.title2.weight(.semibold))
-                    Text("导入多份 JSON 配置，再勾选要加入扫描列表的规则。路径仍会经过应用的本地安全校验。")
+                    Text("导入多份 JSON 配置，用开关选择要加入扫描列表的规则。不存在的目录不会出现在扫描列表中。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -316,11 +324,11 @@ private struct ConfigurationManagerView: View {
                     Section {
                         ForEach(profile.rules) { rule in
                             HStack(spacing: 12) {
-                                Toggle(isOn: Binding(
+                                Toggle("加入扫描", isOn: Binding(
                                     get: { profile.enabledRuleIDs.contains(rule.id) },
                                     set: { store.setRuleEnabled($0, ruleID: rule.id, profileID: profile.id) }
-                                )) { EmptyView() }
-                                    .labelsHidden()
+                                ))
+                                    .toggleStyle(.switch)
                                     .accessibilityLabel("将规则加入扫描列表：\(rule.title)")
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(rule.title).font(.headline)
