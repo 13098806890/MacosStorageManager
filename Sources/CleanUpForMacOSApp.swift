@@ -2,6 +2,29 @@ import SwiftUI
 import Charts
 import UniformTypeIdentifiers
 
+private struct CleanupConfigurationDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    let configuration: CleanupConfiguration
+
+    init(configuration: CleanupConfiguration) {
+        self.configuration = configuration
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.configuration = try JSONDecoder().decode(CleanupConfiguration.self, from: data)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return FileWrapper(regularFileWithContents: try encoder.encode(self.configuration))
+    }
+}
+
 @main
 struct CleanUpForMacOSApp: App {
     @State private var store = CleanupStore()
@@ -303,13 +326,16 @@ private struct DiskSpaceOverviewView: View {
 private struct ConfigurationManagerView: View {
     let store: CleanupStore
     let importConfigurations: () -> Void
+    @State private var showingExporter = false
+    @State private var exportDocument: CleanupConfigurationDocument?
+    @State private var exportFilename = "cleanup-rules"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("配置库").font(.title2.weight(.semibold))
-                    Text("导入多份 JSON 配置，用开关选择要加入扫描列表的规则。不存在的目录不会出现在扫描列表中。")
+                    Text("配置文件管理").font(.title2.weight(.semibold))
+                    Text("你的个人配置保存在 Config/cleanup-rules.json；以后新增路径放在这里。也可以导入其他 JSON 配置，或导出配置备份。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -324,28 +350,39 @@ private struct ConfigurationManagerView: View {
                     Section {
                         ForEach(profile.rules) { rule in
                             HStack(spacing: 12) {
-                                Toggle("加入扫描", isOn: Binding(
-                                    get: { profile.enabledRuleIDs.contains(rule.id) },
-                                    set: { store.setRuleEnabled($0, ruleID: rule.id, profileID: profile.id) }
-                                ))
-                                    .toggleStyle(.switch)
-                                    .accessibilityLabel("将规则加入扫描列表：\(rule.title)")
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(rule.title).font(.headline)
                                     Text(rule.summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                                     Text("\(rule.category) · \(rule.path)").font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
                                 }
+                                Spacer(minLength: 12)
+                                Toggle("加入扫描", isOn: Binding(
+                                    get: { profile.enabledRuleIDs.contains(rule.id) },
+                                    set: { store.setRuleEnabled($0, ruleID: rule.id, profileID: profile.id) }
+                                ))
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .accessibilityLabel("将规则加入扫描列表：\(rule.title)")
                             }
                             .padding(.vertical, 3)
                         }
                     } header: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(profile.name).font(.headline)
+                                Text(profile.isBundled ? "我的配置（\(profile.role)）" : profile.name).font(.headline)
                                 Text("角色：\(profile.role) · 版本：\(profile.configVersion) · \(profile.rules.count) 条规则")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
+                            Button {
+                                exportDocument = CleanupConfigurationDocument(configuration: profile.configuration)
+                                exportFilename = profile.isBundled ? "cleanup-rules" : profile.name
+                                showingExporter = true
+                            } label: {
+                                Label("导出", systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("导出此配置文件")
                             if !profile.isBundled {
                                 Button(role: .destructive) { store.removeProfile(profile.id) } label: {
                                     Image(systemName: "trash")
@@ -360,6 +397,20 @@ private struct ConfigurationManagerView: View {
             .listStyle(.inset)
         }
         .navigationTitle("配置管理")
+        .fileExporter(
+            isPresented: $showingExporter,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: exportFilename
+        ) { result in
+            switch result {
+            case .success:
+                store.message = "配置文件已导出。"
+            case let .failure(error):
+                store.message = "配置文件导出失败：\(error.localizedDescription)"
+            }
+            exportDocument = nil
+        }
     }
 }
 
@@ -526,6 +577,8 @@ private struct SimulatorDeviceRow: View {
 }
 
 private struct CleanupRuleRow: View {
+    @State private var subfoldersExpanded = false
+
     let configuredRule: ConfiguredCleanupRule
     private var rule: CleanupRule { configuredRule.rule }
     let state: ScanState
@@ -591,7 +644,25 @@ private struct CleanupRuleRow: View {
                     Text(error).font(.footnote).foregroundStyle(.red)
                 }
                 if !state.subfolders.isEmpty {
-                    DisclosureGroup("子文件夹（\(state.subfolders.count)）") {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            subfoldersExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: subfoldersExpanded ? "chevron.down" : "chevron.right")
+                                .font(.caption.weight(.semibold))
+                            Text("子文件夹（\(state.subfolders.count)）")
+                                .font(.callout)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(subfoldersExpanded ? "收起子文件夹" : "展开子文件夹")
+                    .padding(.top, 4)
+
+                    if subfoldersExpanded {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(state.subfolders) { subfolder in
                                 HStack(alignment: .top, spacing: 10) {
@@ -619,10 +690,10 @@ private struct CleanupRuleRow: View {
                                 }
                             }
                         }
+                        .padding(.leading, 12)
                         .padding(.vertical, 6)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    .font(.callout)
-                    .padding(.top, 4)
                 }
             }
         }

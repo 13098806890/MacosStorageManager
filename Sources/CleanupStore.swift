@@ -48,6 +48,8 @@ struct CleanupRule: Codable, Identifiable {
         "Library/Caches/Homebrew",
         ".npm/_cacache",
         ".cargo/registry/cache",
+        ".cargo/registry/src",
+        ".gradle/wrapper/dists",
         ".gradle/caches"
     ]
 

@@ -114,6 +114,16 @@
       "category": "包管理器"
     },
     {
+      "id": "rust-registry-sources",
+      "role": "programmer",
+      "title": "Cargo Registry Sources",
+      "path": "$HOME/.cargo/registry/src",
+      "summary": "Cargo 从 registry 下载的 crate 解包源码，供 Rust 编译器构建依赖使用。",
+      "impact": "Cargo 可从本机保留的 crate 压缩包重新解包；压缩包缺失时需要重新下载。解包会增加构建等待，离线且缺少压缩包时可能无法构建。清理前请先结束正在运行的 Cargo 构建。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
       "id": "homebrew-download-cache",
       "role": "programmer",
       "title": "Homebrew Download Cache",
@@ -130,6 +140,16 @@
       "path": "$HOME/.gradle/caches",
       "summary": "Gradle 下载的依赖和项目构建缓存，不包含项目源文件。",
       "impact": "Gradle 后续可能重新下载依赖并重建转换结果；离线构建可能暂时不可用。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "gradle-wrapper-distributions",
+      "role": "programmer",
+      "title": "Gradle Wrapper Distributions",
+      "path": "$HOME/.gradle/wrapper/dists",
+      "summary": "Gradle Wrapper 下载并解压的 Gradle 发行包，不包含项目源代码或 Gradle 全局配置。",
+      "impact": "后续运行项目 Wrapper 时会重新下载所需 Gradle 发行包；首次启动会更慢，离线或私有镜像凭据不可用时可能无法启动。清理前请先结束正在运行的 Gradle 构建。",
       "risk": "medium",
       "category": "包管理器"
     }
