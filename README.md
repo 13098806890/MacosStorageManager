@@ -1,48 +1,45 @@
 # CleanUpForMacOS
 
-CleanUpForMacOS 是一个公开开发中的 macOS 存储整理工具。用户主动选择配置并扫描目录，查看空间估算、内容说明和删除影响，再逐项选择并确认操作。普通清理规则会把所选目录移到 macOS 废纸篓；应用不会定时或静默清理。
+**简体中文** | [English](README.en.md)
 
-> **安全说明：** 应用关闭了 App Sandbox，以便直接访问配置中批准的用户缓存目录。请只导入你信任的配置；导入规则仍会经过应用内的路径校验。任何清理操作都必须由用户选择并确认。
+一个面向开发者的 macOS 存储整理工具。由你主动扫描、检查说明和空间估算、选择目标；普通清理会先移到废纸篓，需要再次确认，不会静默或定时删除。
 
-## 功能
+[查看 GitHub Releases / 下载 DMG](https://github.com/13098806890/MacosStorageManager/releases)
 
-### 清理配置
+> **发布状态：** 当前还没有正式发布的 DMG。发布后会放在上方 Releases 页面。项目没有 Apple Developer ID 签名和公证凭据；发布安装包之前需要补齐签名与公证流程。
 
-- 内置程序员缓存配置，并可导入多份符合相同 JSON schema 的配置。
-- 在“配置管理”中按配置查看规则，逐条启用或停用；启用的规则会出现在扫描列表中。
-- 点击顶部“扫描全部缓存”后扫描所有已启用且本机存在的规则。扫描由用户主动发起；类别选择只筛选列表显示。
-- 扫描结果显示配置作者提供的目录说明、预计删除影响和目录大小。子文件夹按占用空间从大到小排列，每层默认显示前 10 个；可用“Load more”每次增加 10 个，或用“Load all”显示该层全部子文件夹，并单独选择任意已显示的目录清理。
-- 选择规则后再次确认，应用将目标移到废纸篓。清理结果、规则 ID、说明、大小和解析后的本机路径会写入本地操作日志。
+> **安全提示：** 本应用关闭了 App Sandbox，以直接访问配置中批准的用户缓存目录。只导入可信配置，并在每次清理前核对目标和影响。普通缓存清理使用 macOS 废纸篓；模拟器设备删除是永久操作。
 
-### 磁盘空间历史
+## 功能一览
 
-- 显示用户主目录所在卷的总容量、已用容量和可用容量。
-- 每次手动扫描完成后保存一个可用空间数据点，并以折线图展示时间变化。模拟器清单扫描也会记录一个点。
-- 历史只保存在本机，最多保留最近 365 个扫描点。
+- **按配置扫描缓存：** 扫描由用户发起；可导入多份配置并逐条启用规则。每个配置文件只支持一个角色。
+- **先检查再清理：** 查看目录说明、预计影响和大小，展开子目录并按大小排序。每层先显示 10 项，可继续“Load more”或“Load all”。选择目标并确认后，应用将普通缓存目录移到废纸篓。
+- **磁盘空间历史：** 展示主目录所在卷的容量，并记录手动扫描后的可用空间变化。历史保存在本机，最多保留 365 个点。
+- **模拟器管理：** 查看 Xcode Simulator 设备状态与数据大小。确认删除正在运行的设备时，应用会先将其关机，再永久删除设备及其数据。Runtime 由 Xcode 管理，本应用不直接删除 Runtime 文件。
+- **本机记录：** 清理日志、导入配置和磁盘历史保存在本机，不会上传到项目服务。
 
-### Xcode 模拟器
+## 使用方法
 
-- 模拟器设备与普通缓存规则分开管理。应用从 `xcrun simctl list --json` 读取设备清单、状态和数据/日志大小。
-- 用户可选择关机或正在运行的设备。确认后，应用先重新核对状态；若设备仍在运行，会先通过固定的 `xcrun simctl shutdown <validated-UUID>` 关机，再通过 `xcrun simctl delete <validated-UUID>` 永久删除。设备中的 App、App 数据和设置会被永久删除，这项操作不会移到废纸篓。正在切换状态的设备不会被删除。
-- 共享 Simulator Runtime 会显示名称和可用状态。Runtime 的检查、安装和移除由 Xcode 的 **Settings > Components** 管理；本应用不直接删除 Runtime 文件。
+1. 从 Releases 下载 DMG，打开后将 app 拖入“应用程序”。首次发布安装包尚未提供；目前可按下方步骤从源码构建。
+2. 启动后打开侧边栏的“配置管理”，启用要扫描的规则，或导入兼容的 JSON 配置。导入规则默认关闭。
+3. 回到“全部”，点击顶部的“扫描全部缓存”。类别选择只筛选结果显示；扫描会覆盖所有已启用且本机存在的规则。
+4. 检查目录说明、大小和预计影响。展开子文件夹查看大小；每层按空间从大到小排列，默认显示前 10 个。
+5. 选择规则目录或已显示的子目录，阅读确认对话框，再选择“移到废纸篓”。
+6. 查看 Xcode 设备时打开“模拟器管理”。设备删除不可恢复；Runtime 请前往 Xcode **Settings > Components** 管理。
 
-## 下载与运行
+扫描大小是估算值，不是文件清单；扫描器不读取文件名，且跳过隐藏文件，因此显示值可能低估实际占用。
 
-### 环境要求
+## 截图
 
-- macOS 14 或更新版本。
-- Xcode 15 或更新版本。
-- Xcode Command Line Tools 已安装，并在 Xcode 的 **Settings > Locations** 中选定。
+界面截图待补充。截图捕获完成后会放在 [`docs/screenshots/`](docs/screenshots/) 并在此展示；请勿提交包含真实用户名、清理日志、个人文件名或其他本机信息的截图。
 
-### 使用 Xcode 构建
+## 构建
 
-1. 克隆本仓库并打开 `CleanUpForMacOS.xcodeproj`。
-2. 选择 `CleanUpForMacOS` scheme 和本机 macOS 运行目标。
-3. 运行或构建应用。
-
-### 使用命令行构建
+要求：macOS 14 或更新版本、Xcode 15 或更新版本，并在 Xcode **Settings > Locations** 中选择 Xcode Command Line Tools。
 
 ```sh
+git clone https://github.com/13098806890/MacosStorageManager.git
+cd MacosStorageManager
 xcodebuild \
   -project CleanUpForMacOS.xcodeproj \
   -scheme CleanUpForMacOS \
@@ -51,94 +48,24 @@ xcodebuild \
   build
 ```
 
-使用 Xcode 构建目录中的 `CleanUpForMacOS.app` 启动应用。此项目采用直接分发配置，不适用于 Mac App Store。
+也可以在 Xcode 中打开 `CleanUpForMacOS.xcodeproj`，选择 `CleanUpForMacOS` scheme 后构建或运行。项目使用直接分发配置，不适用于 Mac App Store。
 
-## 首次使用
+## 配置与安全边界
 
-1. 在侧边栏打开“配置管理”，逐条启用希望扫描的规则。也可以导入其它 JSON 配置。
-2. 在配置文件列表中逐条打开或关闭规则开关。导入的配置默认不启用任何规则；点击每份配置旁的“导出”可保存 JSON 备份。
-3. 回到“全部”或具体类别，点击顶部“扫描全部缓存”。类别选择只影响列表显示，扫描会覆盖所有已启用的缓存规则。
-4. 阅读目录说明、预计影响和扫描大小；需要时逐层展开子文件夹。
-5. 选择要清理的目录或子文件夹，阅读确认对话框后选择“移到废纸篓”。
-6. 查看模拟器时打开“模拟器管理”。正在运行的设备也可以选择；确认后应用会先关机再通过 `simctl` 永久删除。Runtime 请前往 Xcode **Settings > Components** 管理。
+内置配置位于 [`Config/cleanup-rules.json`](Config/cleanup-rules.json)。规则是删除提案，不是可信代码，也不代表任意社区建议已通过安全审核。每个 JSON 文件使用相同 schema，用户可导入多份配置并自行启用规则。
 
-扫描大小是估算值，不代表完整文件清单。清理前请确认说明和目标范围符合你的工作流。
+规则路径只接受 `$HOME/` 加静态路径组件。运行时还会检查批准的缓存根目录、当前用户主目录边界和符号链接；导入配置不会扩大允许范围。启用规则不能有相同路径或父子路径重叠。普通清理移动到废纸篓，但目标内容仍需由用户判断；模拟器设备删除为永久操作。
 
-## 配置文件
+扫描只显示规则描述、聚合大小和可见子文件夹，不检查或展示文件清单。更深层子目录使用通用说明；配置中的 `subfolderDescriptions` 只描述直接子文件夹。
 
-内置程序员配置位于 [`Config/cleanup-rules.json`](Config/cleanup-rules.json)。当前它是仓库维护的单角色配置，不代表任意社区提案都已通过安全审核。每个 JSON 文件是一个角色配置；用户可以导入多份配置，并从中挑选需要加入扫描列表的规则。规则 ID 需要在所属配置文件内唯一，不同配置里的规则 ID 可以相同，因为应用使用配置 ID 与规则 ID 的组合区分运行时规则。
-
-规则在 `rules` 数组中保持平铺。应用会在用户启用规则时自动检测路径完全重复或父子包含关系，并阻止重叠规则同时启用；配置文件不需要额外组织成目录树。已启用但本机上不存在的目录不会显示在扫描列表中。配置管理页仍保留这些规则，用户可查看或关闭开关。导出会保存配置 JSON；开关状态保存在本机，不写入导出的共享配置。
-
-当前程序员配置包含 Cargo registry 解包源码和 Gradle Wrapper 发行包缓存。Cargo 可从保留的 crate 压缩包重新解包，必要时重新下载；Gradle Wrapper 可按项目声明重新下载发行包。两项均为中等风险：会增加解包或下载时间，离线环境可能无法立即恢复。清理前请先结束正在运行的 Cargo 或 Gradle 构建。
-
-扫描后可以逐层展开每条规则的子文件夹，查看估算大小和配置说明；本应用不读取或展示目录内的文件清单。只有第一层子文件夹会使用配置中的 `subfolderDescriptions`，更深层目录显示通用说明。
-
-配置结构：
-
-```json
-{
-  "schemaVersion": 1,
-  "configVersion": "2026.10.0",
-  "role": "programmer",
-  "rules": [
-    {
-      "id": "xcode-derived-data",
-      "role": "programmer",
-      "title": "Xcode DerivedData",
-      "path": "$HOME/Library/Developer/Xcode/DerivedData",
-      "summary": "Xcode 的构建产物、索引和中间文件。",
-      "impact": "Xcode 会在后续构建时重新生成相关文件；首次构建和索引可能变慢。",
-      "risk": "low",
-      "category": "Xcode",
-      "subfolderDescriptions": {
-        "ModuleCache.noindex": "Swift 和 Clang 构建使用的模块缓存。"
-      }
-    }
-  ]
-}
-```
-
-`subfolderDescriptions` 是可选字段，只能描述扫描时发现的**直接子文件夹**；它不会创建路径或扩大授权范围。示例仅说明字段结构，不能替代为新路径收集安全证据。
-
-### 路径和安全限制
-
-- 只允许 `$HOME/` 加静态目录组件，例如 `$HOME/Library/Caches/example-tool`。
-- 禁止真实用户名、机器绝对路径、`~`、其他变量、通配符、Shell 表达式、空组件、`.` 和 `..`。
-- App 只接受 `Sources/CleanupStore.swift` 中明确批准的缓存根目录。导入 JSON 不会扩大这些根目录。
-- 扫描和清理会拒绝目标符号链接，并检查解析后的目标仍在当前用户主目录和批准根目录中。
-- 启用规则之间不能存在重复路径或父子路径重叠，避免先清理父目录后子目录目标失效。
-- 配置只是删除提案，不是可信代码。字段不能触发命令、脚本或网络下载。
-
-添加或修改规则前，必须阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/AI_RULE_AUTHORING.md`](docs/AI_RULE_AUTHORING.md)。AI 和人工贡献者都要确认路径所有者、实际内容、可重建性、目录边界、版本范围和用户影响。只凭路径名里含有 `cache`、`tmp` 或 `build` 不足以证明可删除。
-
-## 扫描和清理的限制
-
-- 扫描器显示规则说明和聚合大小，不会检查文件名，也不会识别目录中的具体文件内容。
-- 扫描器跳过隐藏文件；显示大小可能低估实际占用。
-- 子文件夹树展示扫描到的可见目录层级，大小是递归估算值；不跟随符号链接，也不展示隐藏文件或文件清单。
-- 清理会移动整个配置目录或一个已展开并选择的子目录。相同规则下不允许同时选择父目录和其后代；应用不会在点击确认前再次核对目录内容是否变化。
-- 移到废纸篓为普通清理提供恢复机会，但不代表目标一定安全；Simulator 设备删除是不可通过本应用恢复的操作。
-- Runtime 大小和可回收空间由 Xcode 展示；应用不会扫描或删除 Runtime 包。
+添加或修改清理规则前，请先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/AI_RULE_AUTHORING.md`](docs/AI_RULE_AUTHORING.md)。规则必须有目录所有者的证据，明确内容、重建方式、离线影响和最小目录边界；目录名含有 `cache`、`tmp` 或 `build` 本身不是安全证据。
 
 ## 本机数据与隐私
 
-数据位于当前用户的 Application Support 目录下的 `CleanUpForMacOS` 文件夹：
+配置、磁盘空间历史和清理记录保存在当前用户的 Application Support 下的 `CleanUpForMacOS` 目录。清理日志包含解析后的本机绝对路径，请不要提交或公开分享未脱敏的日志。容量数据只用于本机显示；隐私清单见 [`Config/PrivacyInfo.xcprivacy`](Config/PrivacyInfo.xcprivacy)。
 
-- `profiles.json`：导入的脱敏配置和启用状态。
-- `disk-space-history.json`：最近的磁盘可用空间历史点。
-- `cleanup-log.jsonl`：清理操作日志，包含解析后的本机绝对路径。
+## 参与贡献
 
-这些文件不会写入仓库。请勿公开分享未经脱敏的 `cleanup-log.jsonl`。应用没有把这些本地记录同步或上传到项目服务的功能。容量信息仅用于本地显示；Privacy Manifest 声明见 [`Config/PrivacyInfo.xcprivacy`](Config/PrivacyInfo.xcprivacy)。
+欢迎提交代码、文档、无障碍和本地化改进，以及有充分证据的规则提案。请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 和 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。安全问题请按 [`SECURITY.md`](SECURITY.md) 中的方式报告。
 
-关闭 App Sandbox 能让应用直接读取允许的缓存路径，减少用户逐目录授权步骤；同时也意味着应用进程具备更广泛的文件访问能力。请只从可信来源导入配置，并检查每次清理的目标和说明。本项目面向自行构建或直接分发，不支持 Mac App Store 分发。
-
-## 贡献
-
-欢迎贡献应用代码、文档、可访问性改进和经过证据审查的清理规则。开始前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)；规则提案请使用 GitHub 的 Cleanup rule proposal 表单，并遵循 [`docs/AI_RULE_AUTHORING.md`](docs/AI_RULE_AUTHORING.md)。不要提交用户的绝对路径、操作日志、Security-Scoped Bookmark、构建产物或其他本机数据。
-
-项目结构说明：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。漏洞报告：[`SECURITY.md`](SECURITY.md)。
-
-## 许可证
-
-仓库当前尚未包含 `LICENSE` 文件。维护者确定并添加许可证后，贡献者和使用者再按该许可证分发或复用代码。
+**许可证尚未确定：** 仓库目前没有 `LICENSE` 文件。许可证确定前，代码的再分发和复用条款尚未建立；详情见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
