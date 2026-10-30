@@ -176,21 +176,19 @@ private struct DiskSpaceOverviewView: View {
     let snapshots: [DiskSpaceSnapshot]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                metric("总空间", bytes: current?.totalBytes)
-                metric("已用空间", bytes: current?.usedBytes)
-                metric("可用空间", bytes: current?.availableBytes)
-            }
+        HStack(alignment: .center, spacing: 12) {
+            capacityCard
+                .frame(width: 190)
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("可用空间变化").font(.headline)
                     Spacer()
-                    Text("每次扫描记录").font(.caption).foregroundStyle(.secondary)
+                    Text("\(snapshots.count) 次扫描").font(.caption).foregroundStyle(.secondary)
                 }
                 if snapshots.isEmpty {
-                    ContentUnavailableView("暂无扫描记录", systemImage: "chart.xyaxis.line", description: Text("扫描后会在这里记录一个磁盘可用空间数据点。"))
-                        .frame(height: 88)
+                    ContentUnavailableView("暂无扫描记录", systemImage: "chart.xyaxis.line", description: Text("手动扫描后会记录可用空间。"))
+                        .frame(maxWidth: .infinity, minHeight: 112)
                 } else {
                     Chart(snapshots) { point in
                         LineMark(x: .value("时间", point.timestamp), y: .value("可用空间", point.availableBytes))
@@ -211,28 +209,80 @@ private struct DiskSpaceOverviewView: View {
                         AxisGridLine()
                         AxisValueLabel(format: .dateTime.month(.abbreviated).day().hour().minute())
                     } }
-                    .frame(height: 104)
+                    .chartYScale(domain: .automatic(includesZero: false))
+                    .frame(height: 126)
                 }
             }
             .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 160)
             .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
     }
 
-    private func metric(_ title: String, bytes: Int64?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "读取中…")
-                .font(.system(.headline, design: .rounded).weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+    private var capacityCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("磁盘空间").font(.headline)
+            HStack(spacing: 10) {
+                ZStack {
+                    if let current, current.totalBytes > 0 {
+                        Chart {
+                            SectorMark(
+                                angle: .value("已用", max(0, current.usedBytes)),
+                                innerRadius: .ratio(0.72),
+                                angularInset: 1.5
+                            )
+                            .foregroundStyle(Color.blue)
+                            SectorMark(
+                                angle: .value("可用", max(0, current.availableBytes)),
+                                innerRadius: .ratio(0.72),
+                                angularInset: 1.5
+                            )
+                            .foregroundStyle(Color.green)
+                        }
+                        .chartLegend(.hidden)
+                        .frame(width: 82, height: 82)
+                        .overlay {
+                            VStack(spacing: 1) {
+                                Text(ByteCountFormatter.string(fromByteCount: current.totalBytes, countStyle: .file))
+                                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                                Text("总空间").font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
+                            .frame(width: 62)
+                        }
+                    } else {
+                        ProgressView().frame(width: 82, height: 82)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    capacityLegend("已用", bytes: current?.usedBytes, color: .blue)
+                    capacityLegend("可用", bytes: current?.availableBytes, color: .green)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func capacityLegend(_ title: String, bytes: Int64?, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+        }
     }
 }
 
