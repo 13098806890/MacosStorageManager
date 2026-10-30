@@ -172,6 +172,8 @@ private struct CleanupHomeView: View {
 }
 
 private struct DiskSpaceOverviewView: View {
+    private let cardHeight: CGFloat = 184
+
     let current: DiskSpaceSnapshot?
     let snapshots: [DiskSpaceSnapshot]
 
@@ -211,10 +213,12 @@ private struct DiskSpaceOverviewView: View {
                     } }
                     .chartYScale(domain: .automatic(includesZero: false))
                     .frame(height: 126)
+                    .animation(.easeInOut(duration: 0.75), value: snapshots.map(\.availableBytes))
                 }
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 160)
+            .frame(maxWidth: .infinity)
+            .frame(height: cardHeight)
             .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
         }
         .padding(.horizontal, 20)
@@ -233,16 +237,17 @@ private struct DiskSpaceOverviewView: View {
                                 innerRadius: .ratio(0.72),
                                 angularInset: 1.5
                             )
-                            .foregroundStyle(Color.blue)
+                            .foregroundStyle(Color.red)
                             SectorMark(
                                 angle: .value("可用", max(0, current.availableBytes)),
                                 innerRadius: .ratio(0.72),
                                 angularInset: 1.5
                             )
-                            .foregroundStyle(Color.green)
+                            .foregroundStyle(Color.blue)
                         }
                         .chartLegend(.hidden)
                         .frame(width: 82, height: 82)
+                        .animation(.easeInOut(duration: 0.75), value: current.usedBytes)
                         .overlay {
                             VStack(spacing: 1) {
                                 Text(ByteCountFormatter.string(fromByteCount: current.totalBytes, countStyle: .file))
@@ -260,14 +265,15 @@ private struct DiskSpaceOverviewView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 7) {
-                    capacityLegend("已用", bytes: current?.usedBytes, color: .blue)
-                    capacityLegend("可用", bytes: current?.availableBytes, color: .green)
+                    capacityLegend("已用", bytes: current?.usedBytes, color: .red)
+                    capacityLegend("可用", bytes: current?.availableBytes, color: .blue)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: cardHeight, alignment: .leading)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
     }
 
