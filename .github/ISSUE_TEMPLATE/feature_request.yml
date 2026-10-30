@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a user-facing improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Describe the user and the situation, rather than only the proposed control.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or tradeoffs
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety impact
+      options:
+        - label: This request does not ask for automatic, scheduled, or unconfirmed deletion.
+          required: true

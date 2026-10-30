@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate built-in cleanup configuration
+        run: python3 scripts/validate_cleanup_rules.py Config/cleanup-rules.json
+
+      - name: Build macOS app
+        run: >-
+          xcodebuild
+          -project CleanUpForMacOS.xcodeproj
+          -scheme CleanUpForMacOS
+          -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
+          build

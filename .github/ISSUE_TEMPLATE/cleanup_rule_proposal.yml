@@ -1,0 +1,63 @@
+name: Cleanup rule proposal
+description: Propose a cache directory with evidence and concrete impact.
+title: "[Rule proposal]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A rule proposes moving a directory to Trash. Names containing “cache” are not enough evidence.
+        Do not include a real username, absolute path, cleanup log, or private machine data.
+  - type: input
+    id: owner
+    attributes:
+      label: Owning app or tool and relevant version
+    validations:
+      required: true
+  - type: input
+    id: path
+    attributes:
+      label: Exact home-relative path
+      description: Use only the literal $HOME/ form, for example $HOME/Library/Caches/example.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Primary evidence
+      description: Link vendor documentation or maintained source that establishes ownership and contents.
+    validations:
+      required: true
+  - type: textarea
+    id: contents
+    attributes:
+      label: What is stored here, and what is outside the proposed boundary?
+    validations:
+      required: true
+  - type: textarea
+    id: rebuild
+    attributes:
+      label: What happens after removal?
+      description: Explain regeneration, downloads, offline behavior, and workflow impact.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Proposed risk
+      options:
+        - low
+        - medium
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked that the target does not include project files, user documents, credentials, app state, databases, archives, or device data.
+          required: true
+        - label: I checked for duplicate paths and parent/child overlap with existing rules.
+          required: true
+        - label: I understand that a proposal does not automatically authorize the path in the app.
+          required: true

@@ -94,6 +94,16 @@
       "category": "包管理器"
     },
     {
+      "id": "dart-pub-hosted-cache",
+      "role": "programmer",
+      "title": "Dart/Flutter pub.dev 包缓存",
+      "path": "$HOME/.pub-cache/hosted/pub.dev",
+      "summary": "Dart pub 和 Flutter pub 下载并解压的 pub.dev 依赖包版本及缓存元数据，不包含项目目录中的源代码。",
+      "impact": "清理后，项目执行 dart pub get 或 flutter pub get 时需要重新获取所需依赖；离线模式下，缓存中缺失的版本无法恢复。若曾直接修改缓存内的依赖源码，这些修改也会随缓存移入废纸篓。可先运行 dart pub cache gc --dry-run 查看未被当前项目引用的条目；清理前请结束正在运行的 Dart/Flutter 依赖获取和构建。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
       "id": "go-build-cache",
       "role": "programmer",
       "title": "Go Build Cache",
@@ -134,6 +144,46 @@
       "category": "包管理器"
     },
     {
+      "id": "chrome-default-http-cache",
+      "role": "programmer",
+      "title": "Google Chrome 默认配置文件网页缓存",
+      "path": "$HOME/Library/Caches/Google/Chrome/Default/Cache",
+      "summary": "Chrome 默认配置文件用于复用网页响应内容的磁盘缓存，例如页面图片和其他资源；浏览器配置文件中的 Cookie、历史记录和书签保存在其他位置。",
+      "impact": "清理前请退出 Chrome。之后访问网页时，资源可能需要重新下载，页面首次加载会变慢；离线时无法依赖这份网页缓存。",
+      "risk": "medium",
+      "category": "浏览器"
+    },
+    {
+      "id": "chrome-default-code-cache",
+      "role": "programmer",
+      "title": "Google Chrome 默认配置文件代码缓存",
+      "path": "$HOME/Library/Caches/Google/Chrome/Default/Code Cache",
+      "summary": "Chrome 为网页资源保存的生成代码缓存，用于加快后续执行；网页原始代码不保存在此目录。",
+      "impact": "清理前请退出 Chrome。Chrome 会在之后访问网页时重新生成代码缓存，首次加载或脚本执行可能变慢。",
+      "risk": "low",
+      "category": "浏览器"
+    },
+    {
+      "id": "node-gyp-header-cache",
+      "role": "programmer",
+      "title": "node-gyp Node.js 开发文件缓存",
+      "path": "$HOME/Library/Caches/node-gyp",
+      "summary": "node-gyp 为构建原生 Node.js 插件下载的 Node.js 头文件和 GYP 配置文件。",
+      "impact": "清理前请结束正在运行的原生插件构建。之后构建时 node-gyp 需要重新下载对应 Node.js 版本的开发文件；离线或自定义发行源不可用时构建可能失败。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
+      "id": "carthage-shared-cache",
+      "role": "programmer",
+      "title": "Carthage 共享依赖缓存",
+      "path": "$HOME/Library/Caches/org.carthage.CarthageKit",
+      "summary": "Carthage 跨项目复用的依赖 Git 裸仓库、下载的预编译框架和构建缓存；不包含项目内的 Carthage/Build 或 Carthage/Checkouts。",
+      "impact": "清理前请结束 Carthage 操作。之后执行依赖检出或构建时，Carthage 需要重新获取仓库和预编译框架，或重新构建依赖；离线或私有仓库凭据不可用时可能无法恢复。",
+      "risk": "medium",
+      "category": "包管理器"
+    },
+    {
       "id": "gradle-cache",
       "role": "programmer",
       "title": "Gradle Cache",
@@ -152,6 +202,46 @@
       "impact": "后续运行项目 Wrapper 时会重新下载所需 Gradle 发行包；首次启动会更慢，离线或私有镜像凭据不可用时可能无法启动。清理前请先结束正在运行的 Gradle 构建。",
       "risk": "medium",
       "category": "包管理器"
+    },
+    {
+      "id": "firefox-profile-cache",
+      "role": "programmer",
+      "title": "Firefox 本地配置文件缓存",
+      "path": "$HOME/Library/Caches/Firefox/Profiles",
+      "summary": "Firefox 各配置文件的本地缓存数据，包括网页 HTTP 缓存和启动缓存；书签、密码、设置等保存在单独的主配置文件目录。",
+      "impact": "清理前请退出 Firefox。之后打开网页时，图片、脚本等资源需要重新载入，首次访问会变慢；离线时无法依赖旧网页缓存。Firefox 会在后续使用中重新生成缓存。",
+      "risk": "medium",
+      "category": "浏览器"
+    },
+    {
+      "id": "vscode-cpptools-intellisense-cache",
+      "role": "programmer",
+      "title": "VS Code C/C++ IntelliSense 缓存",
+      "path": "$HOME/Library/Caches/vscode-cpptools",
+      "summary": "Microsoft C/C++ 扩展为头文件和 IntelliSense 分析保存的可重建索引缓存，不包含工程源文件或扩展本身。",
+      "impact": "之后打开 C/C++ 工程时，扩展需要重新扫描头文件并建立 IntelliSense 缓存，首次分析可能变慢；缓存可从本机工程文件重建，不需要重新下载工程内容。仅适用于使用默认缓存位置的配置。",
+      "risk": "low",
+      "category": "开发工具"
+    },
+    {
+      "id": "dart-analysis-server-cache",
+      "role": "programmer",
+      "title": "Dart 分析器索引缓存",
+      "path": "$HOME/.dartServer/.analysis-driver",
+      "summary": "Dart 分析服务器保存的分析索引缓存，不包含项目源文件或依赖包本身。",
+      "impact": "清理前请关闭 VS Code、Android Studio 或其他 Dart IDE。下次分析项目时，Dart 分析器会重新建立索引；首次代码分析和补全可能变慢。",
+      "risk": "low",
+      "category": "开发工具"
+    },
+    {
+      "id": "adobe-media-cache-files",
+      "role": "programmer",
+      "title": "Adobe Media Cache Files",
+      "path": "$HOME/Library/Application Support/Adobe/Common/Media Cache Files",
+      "summary": "Premiere、After Effects 和 Media Encoder 导入媒体后生成的加速缓存文件，例如音频波形和峰值数据；不包含源媒体或项目文件。",
+      "impact": "清理前请退出正在使用 Adobe Media Cache 的应用。重新打开项目时，Adobe 应用会按可访问的源媒体重建缓存；大型项目的首次导入、波形生成和播放准备可能明显变慢。源媒体所在磁盘不可用时，相关缓存要等磁盘重新连接后才能重建。仅适用于默认缓存位置。",
+      "risk": "medium",
+      "category": "应用缓存"
     }
   ]
 }
