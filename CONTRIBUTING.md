@@ -2,6 +2,8 @@
 
 Thanks for helping improve CleanUpForMacOS. Contributions are welcome in the app, documentation, accessibility, localization, and cleanup-rule review.
 
+AI coding agents should first read [`AGENTS.md`](AGENTS.md) and [`docs/AI_CONTRIBUTING.md`](docs/AI_CONTRIBUTING.md). For version changes and releases, follow [`docs/RELEASING.md`](docs/RELEASING.md).
+
 **License status:** the repository does not yet have a `LICENSE` file. Until the maintainer chooses one, please use issues and discussions to propose work; maintainers may defer merging code contributions because reuse and contribution terms have not been established.
 
 ## Before you start

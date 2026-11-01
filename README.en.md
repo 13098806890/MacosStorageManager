@@ -4,9 +4,9 @@
 
 A macOS storage cleanup tool for developers. You start each scan, review descriptions and estimated sizes, choose the targets, and confirm. Ordinary cleanup moves items to Trash; nothing is silently or periodically deleted.
 
-[Browse GitHub Releases / download the DMG](https://github.com/13098806890/MacosStorageManager/releases)
+[Download CleanUpForMacOS 0.1.0 DMG](https://github.com/13098806890/MacosStorageManager/releases/download/v0.1.0/CleanUpForMacOS-0.1.0.dmg) · [Browse all releases](https://github.com/13098806890/MacosStorageManager/releases)
 
-> **Release status:** There is no published DMG yet. Future downloads will be available from the Releases page above. The project does not have an Apple Developer ID signing identity or notarization credentials; signing and notarization must be set up before publishing an installer.
+> **Current release:** `0.1.0`, signed with Developer ID and notarized by Apple. The installer supports macOS 14 or later and is not compatible with the Mac App Store.
 
 > **Security:** App Sandbox is disabled so the app can access approved cache directories in the current user's home folder. Import profiles only from sources you trust, and review each target and its impact before cleanup. Ordinary cache cleanup uses macOS Trash; simulator device deletion is permanent.
 
@@ -20,12 +20,15 @@ A macOS storage cleanup tool for developers. You start each scan, review descrip
 
 ## How to use
 
-1. Download the DMG from Releases, open it, and drag the app to **Applications**. A release installer is not available yet; you can build from source using the steps below.
-2. Launch the app and open **配置管理** (Configuration Management) in the sidebar. Enable the rules you want, or import a compatible JSON profile. Imported rules are disabled by default.
-3. Return to **全部** (All) and click **扫描全部缓存** (Scan All Caches) at the top. Category selection filters the displayed results; the scan covers all enabled rules whose paths exist on this Mac.
-4. Review the descriptions, sizes, and estimated impact. Expand child folders to inspect them; each level is sorted largest first and initially shows 10 items.
-5. Select a rule directory or a displayed child directory, review the confirmation dialog, and choose **移到废纸篓** (Move to Trash).
-6. Open **模拟器管理** (Simulator Management) to review Xcode devices. Device deletion cannot be undone. Manage runtimes in Xcode **Settings > Components**.
+Download the DMG from [GitHub Releases](https://github.com/13098806890/MacosStorageManager/releases), open it, and drag the app to **Applications**. You can also build from source using the steps below.
+
+After launching the app:
+
+1. Open **配置管理** (Configuration Management) in the sidebar. Enable the rules you want, or import a compatible JSON profile. Imported rules are disabled by default.
+2. Return to **全部** (All) and click **扫描全部缓存** (Scan All Caches). Category selection filters the displayed results; the scan covers all enabled rules whose paths exist on this Mac.
+3. Review descriptions, sizes, and estimated impact. Expand child folders to inspect them; each level is sorted largest first and initially shows 10 items.
+4. Select a rule directory or a displayed child directory, review the confirmation dialog, and choose **移到废纸篓** (Move to Trash).
+5. Open **模拟器管理** (Simulator Management) to review Xcode devices. Device deletion cannot be undone. Manage runtimes in Xcode **Settings > Components**.
 
 Scan sizes are estimates, not file inventories. The scanner does not inspect filenames and skips hidden files, so displayed sizes may be lower than actual usage.
 
@@ -69,3 +72,9 @@ Profiles, disk-space history, and cleanup records are stored under `CleanUpForMa
 Contributions to code, documentation, accessibility, localization, and evidence-backed cleanup rules are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Report security issues as described in [`SECURITY.md`](SECURITY.md).
 
 **License not yet selected:** There is currently no `LICENSE` file, so redistribution and reuse terms have not been established. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Maintainer documentation
+
+- [Versioning and release process](docs/RELEASING.md): version numbers, build numbers, release checks, and distribution signing requirements.
+- [AI contributor guide](docs/AI_CONTRIBUTING.md): project boundaries, workflow, and verification requirements for AI-assisted changes.
+- [Cleanup rule authoring guide](docs/AI_RULE_AUTHORING.md): required safety evidence before adding or changing cleanup paths.
