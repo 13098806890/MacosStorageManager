@@ -100,6 +100,7 @@ struct CleanUpForMacOSApp: App {
 private struct CleanupHomeView: View {
     @State private var store: CleanupStore
     @State private var simulatorStore: SimulatorManagerStore
+    @State private var homebrewStore = HomebrewManagerStore()
     @State private var selectedCategory: String? = "全部"
     @State private var showingCleanupConfirmation = false
     @State private var showingConfigurationImporter = false
@@ -112,9 +113,9 @@ private struct CleanupHomeView: View {
 
     private var categories: [String] {
         let ruleCategories = Set(availableRules.map { $0.rule.category })
-            .subtracting(["全部", "模拟器管理", "清理记录", "配置管理"])
+            .subtracting(["全部", "模拟器管理", "命令行工具", "清理记录", "配置管理"])
             .sorted()
-        return ["全部", "模拟器管理"] + ruleCategories + ["清理记录", "配置管理"]
+        return ["全部", "模拟器管理", "命令行工具"] + ruleCategories + ["清理记录", "配置管理"]
     }
 
     private var availableRules: [ConfiguredCleanupRule] {
@@ -149,7 +150,7 @@ private struct CleanupHomeView: View {
     var body: some View {
         NavigationSplitView {
             List(categories, id: \.self, selection: $selectedCategory) { category in
-                Label(category, systemImage: category == "全部" ? "square.grid.2x2" : (category == "模拟器管理" ? "iphone.gen3" : (category == "清理记录" ? "clock.arrow.circlepath" : (category == "配置管理" ? "slider.horizontal.3" : "folder"))))
+                Label(category, systemImage: category == "全部" ? "square.grid.2x2" : (category == "模拟器管理" ? "iphone.gen3" : (category == "命令行工具" ? "terminal" : (category == "清理记录" ? "clock.arrow.circlepath" : (category == "配置管理" ? "slider.horizontal.3" : "folder")))))
                     .tag(category)
             }
             .navigationTitle("清理项目")
@@ -161,6 +162,8 @@ private struct CleanupHomeView: View {
                         DiskSpaceOverviewView(current: store.currentDiskSpace, snapshots: store.diskSnapshots)
                         SimulatorManagerView(store: simulatorStore)
                     }
+                } else if selectedCategory == "命令行工具" {
+                    HomebrewManagerView(store: homebrewStore)
                 } else if selectedCategory == "配置管理" {
                     VStack(spacing: 0) {
                         DiskSpaceOverviewView(current: store.currentDiskSpace, snapshots: store.diskSnapshots)
@@ -218,12 +221,14 @@ private struct CleanupHomeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                let isScanning = selectedCategory == "模拟器管理" ? simulatorStore.isBusy : store.isBusy
+                let isScanning = selectedCategory == "模拟器管理" ? simulatorStore.isBusy : (selectedCategory == "命令行工具" ? homebrewStore.isBusy : store.isBusy)
                 let isConfiguration = selectedCategory == "配置管理"
                 let isCleanupHistory = selectedCategory == "清理记录"
                 Button {
                     if selectedCategory == "模拟器管理" {
                         Task { await simulatorStore.scan() }
+                    } else if selectedCategory == "命令行工具" {
+                        Task { await homebrewStore.refresh() }
                     } else if isConfiguration {
                         showingConfigurationImporter = true
                     } else if isCleanupHistory {
@@ -242,7 +247,7 @@ private struct CleanupHomeView: View {
                             }
                         }
                         .frame(width: 16, height: 16)
-                        Text(isConfiguration ? "导入配置" : (isCleanupHistory ? "刷新记录" : (selectedCategory == "模拟器管理" ? "扫描模拟器" : "扫描全部缓存")))
+                        Text(isConfiguration ? "导入配置" : (isCleanupHistory ? "刷新记录" : (selectedCategory == "模拟器管理" ? "扫描模拟器" : (selectedCategory == "命令行工具" ? "刷新工具清单" : "扫描全部缓存"))))
                     }
                 }
                 .disabled((store.isBusy || simulatorStore.isBusy) && !isCleanupHistory)
@@ -615,6 +620,177 @@ private struct ConfigurationManagerView: View {
             }
             exportDocument = nil
         }
+    }
+}
+
+private struct HomebrewManagerView: View {
+    @State private var store: HomebrewManagerStore
+    @State private var pendingAction: HomebrewAction?
+
+    init(store: HomebrewManagerStore) {
+        _store = State(initialValue: store)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Homebrew 命令行工具")
+                    .font(.title2.weight(.semibold))
+                Text("查看和管理 Homebrew formula。安装、升级、固定版本和卸载都会在执行前要求确认。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if store.brewAvailable {
+                    Text("\(store.brewVersion) · 已安装 \(store.formulas.count) 个 formula · \(store.outdatedCount) 个可升级")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+
+            HStack(spacing: 10) {
+                TextField("搜索 formula，例如 node 或 ripgrep", text: $store.searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { Task { await store.search() } }
+                    .accessibilityLabel("搜索 Homebrew formula")
+                Button("搜索") { Task { await store.search() } }
+                    .disabled(store.isBusy || !store.brewAvailable || store.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
+
+            if store.isBusy && !store.hasLoaded {
+                ProgressView("读取 Homebrew 清单…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !store.hasLoaded {
+                ContentUnavailableView("尚未读取工具清单", systemImage: "terminal", description: Text("点击右上角“刷新工具清单”读取已安装的 Homebrew formula。"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !store.brewAvailable {
+                ContentUnavailableView("未找到 Homebrew", systemImage: "shippingbox", description: Text("支持标准安装位置 /opt/homebrew 和 /usr/local。安装 Homebrew 后刷新清单。"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    if !store.searchResults.isEmpty {
+                        Section("搜索结果 · \(store.searchResults.count)") {
+                            ForEach(store.searchResults, id: \.self) { name in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(name)
+                                        Text(store.isInstalled(name) ? "已安装" : "Homebrew formula")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("安装") { pendingAction = .install(name) }
+                                        .disabled(store.isBusy || store.isInstalled(name))
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    }
+
+                    Section("已安装 formula · \(store.formulas.count)") {
+                        if store.formulas.isEmpty {
+                            Text("没有已安装的 Homebrew formula。")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(store.formulas) { formula in
+                                HomebrewFormulaRow(formula: formula) { action in pendingAction = action }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+
+            if let error = store.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .textSelection(.enabled)
+            }
+            if let message = store.message {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            }
+        }
+        .navigationTitle("命令行工具")
+        .task { if !store.hasLoaded { await store.refresh() } }
+        .confirmationDialog(pendingAction?.title ?? "确认 Homebrew 操作？", isPresented: Binding(
+            get: { pendingAction != nil },
+            set: { if !$0 { pendingAction = nil } }
+        ), titleVisibility: .visible) {
+            if let action = pendingAction {
+                Button(action.buttonTitle, role: action.isDestructive ? .destructive : nil) {
+                    pendingAction = nil
+                    Task { await store.perform(action) }
+                }
+            }
+            Button("取消", role: .cancel) { pendingAction = nil }
+        } message: {
+            Text(pendingAction?.confirmationMessage ?? "")
+        }
+    }
+}
+
+private struct HomebrewFormulaRow: View {
+    let formula: ManagedFormula
+    let selectAction: (HomebrewAction) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.title3)
+                .foregroundStyle(formula.isOutdated ? .orange : .secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(formula.name).font(.headline)
+                    if formula.isOutdated {
+                        Text("可升级")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.16), in: Capsule())
+                    }
+                    if formula.isPinned {
+                        Text("已固定")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.14), in: Capsule())
+                    }
+                }
+                Text("已安装版本：\(formula.installedVersion)")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Menu {
+                if formula.isOutdated {
+                    Button("升级…", systemImage: "arrow.up.circle") { selectAction(.upgrade(formula.name)) }
+                }
+                Button(formula.isPinned ? "解除固定…" : "固定当前版本…", systemImage: formula.isPinned ? "pin.slash" : "pin") {
+                    selectAction(formula.isPinned ? .unpin(formula.name) : .pin(formula.name))
+                }
+                Divider()
+                Button("卸载…", systemImage: "trash", role: .destructive) { selectAction(.uninstall(formula.name)) }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .frame(width: 30, height: 30)
+            }
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("管理 \(formula.name)")
+        }
+        .padding(.vertical, 4)
     }
 }
 

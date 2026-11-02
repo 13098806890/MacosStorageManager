@@ -6,6 +6,7 @@ This document describes the current app boundaries for contributors. Keep the us
 
 - `Sources/CleanUpForMacOSApp.swift` contains the SwiftUI app, navigation, cleanup/configuration/history views, and simulator-management views.
 - `Sources/CleanupStore.swift` contains cleanup models and stores, configuration import/export, path validation, scanning, simulator inventory/deletion, local history, and disk history.
+- `Sources/HomebrewManagerStore.swift` owns the Homebrew formula inventory and fixed Homebrew operations. The CLI manager only searches and manages formulae; it does not execute shell commands or read commands from cleanup profiles.
 - `Config/cleanup-rules.json` is the bundled single-role programmer profile. Imported profiles are stored under the user's Application Support directory and are not written back to this file.
 - `Config/PrivacyInfo.xcprivacy` declares the app's privacy manifest.
 
@@ -22,6 +23,10 @@ Imported configuration is data, never executable behavior. It cannot add approve
 ## Simulator boundary
 
 The simulator manager obtains device and runtime inventory through fixed `xcrun simctl` commands. It can delete a user-confirmed simulator device after refreshing and validating its state. Device deletion is permanent. Shared Simulator Runtime installation and removal belongs to Xcode Components; the app must not manipulate runtime bundles directly.
+
+## Homebrew CLI manager
+
+The manager detects the standard Apple Silicon and Intel executable locations (`/opt/homebrew/bin/brew` and `/usr/local/bin/brew`). It invokes Homebrew directly with fixed subcommands and validated formula identifiers; never route arguments through a shell or profile configuration. Inventory and search are user initiated. Every install, upgrade, pin/unpin, and uninstall requires an in-app confirmation. Uninstall uses Homebrew's default dependency behavior. Version control is limited to Homebrew's installed version and pinning support; arbitrary historical-version rollback is not promised.
 
 ## Local data
 

@@ -16,6 +16,7 @@ A macOS storage cleanup tool for developers. You start each scan, review descrip
 - **Review before cleanup:** See each configured description, estimated impact, and size. Expand child folders sorted by size. Each level initially shows 10 items; use **Load more** or **Load all** to reveal additional folders. After you select a target and confirm, ordinary cache directories are moved to Trash.
 - **Disk space history:** View capacity for the volume containing your home folder and track available space after manual scans. History stays on this Mac and retains up to 365 points.
 - **Simulator management:** Review Xcode Simulator device states and data sizes. After confirmation, a running device is shut down before the device and its data are permanently deleted. Xcode manages simulator runtimes; this app does not remove runtime files.
+- **Command-line tools:** Use Homebrew to view installed formulae and versions, search, check upgrades, install, upgrade, pin/unpin the current version, or uninstall. Each package change requires confirmation. Pinning can delay security updates; arbitrary historical-version rollback is not provided.
 - **Local records:** Cleanup logs, imported profiles, and disk history are stored locally and are not uploaded to a project service.
 
 ## How to use
@@ -29,6 +30,7 @@ After launching the app:
 3. Review descriptions, sizes, and estimated impact. Expand child folders to inspect them; each level is sorted largest first and initially shows 10 items.
 4. Select a rule directory or a displayed child directory, review the confirmation dialog, and choose **移到废纸篓** (Move to Trash).
 5. Open **模拟器管理** (Simulator Management) to review Xcode devices. Device deletion cannot be undone. Manage runtimes in Xcode **Settings > Components**.
+6. Open **命令行工具** (Command-line Tools) to review Homebrew formulae. Search to install; installed formulae can be upgraded, pinned/unpinned, or uninstalled. These actions call the local Homebrew installation and show a confirmation first.
 
 Scan sizes are estimates, not file inventories. The scanner does not inspect filenames and skips hidden files, so displayed sizes may be lower than actual usage.
 
