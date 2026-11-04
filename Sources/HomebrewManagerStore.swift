@@ -4,6 +4,7 @@ import Observation
 struct ManagedFormula: Identifiable, Hashable {
     let name: String
     let installedVersion: String
+    let sizeBytes: Int64?
     let isOutdated: Bool
     let isPinned: Bool
 
@@ -85,6 +86,8 @@ final class HomebrewManagerStore {
     private var brewPath: String?
 
     var outdatedCount: Int { formulas.filter(\.isOutdated).count }
+    var totalInstalledSize: Int64 { formulas.compactMap(\.sizeBytes).reduce(0, +) }
+    var hasUnknownFormulaSizes: Bool { formulas.contains { $0.sizeBytes == nil } }
 
     func refresh() async {
         guard !isBusy else { return }
@@ -193,18 +196,23 @@ final class HomebrewManagerStore {
     private nonisolated static func loadCatalog(using knownPath: String? = nil) throws -> (path: String, version: String, formulas: [ManagedFormula]) {
         guard let path = knownPath ?? locateBrew() else { throw HomebrewManagerError.notInstalled }
         let versionOutput = try run(brewPath: path, arguments: ["--version"])
+        let cellarOutput = try run(brewPath: path, arguments: ["--cellar"])
         let installedOutput = try run(brewPath: path, arguments: ["list", "--formula", "--versions"])
         let outdatedOutput = try run(brewPath: path, arguments: ["outdated", "--formula", "--quiet"])
         let pinnedOutput = try run(brewPath: path, arguments: ["list", "--pinned"])
 
         let outdated = Set(outdatedOutput.split(whereSeparator: \.isNewline).map(String.init))
         let pinned = Set(pinnedOutput.split(whereSeparator: \.isNewline).map(String.init))
+        let cellar = URL(fileURLWithPath: cellarOutput.trimmingCharacters(in: .whitespacesAndNewlines), isDirectory: true)
         let formulas = installedOutput.split(whereSeparator: \.isNewline).compactMap { line -> ManagedFormula? in
             let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
             guard let name = parts.first, isSafeFormulaName(name), parts.count > 1 else { return nil }
+            let cellarName = name.split(separator: "/").last.map(String.init) ?? name
+            let formulaDirectory = cellar.appendingPathComponent(cellarName, isDirectory: true)
             return ManagedFormula(
                 name: name,
                 installedVersion: parts.dropFirst().joined(separator: ", "),
+                sizeBytes: directoryAllocatedSize(at: formulaDirectory),
                 isOutdated: outdated.contains(name),
                 isPinned: pinned.contains(name)
             )
@@ -218,6 +226,26 @@ final class HomebrewManagerStore {
 
     private nonisolated static func loadCatalog() throws -> (path: String, version: String, formulas: [ManagedFormula]) {
         try loadCatalog(using: nil)
+    }
+
+    private nonisolated static func directoryAllocatedSize(at url: URL) -> Int64? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]
+              ) else {
+            return nil
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]),
+                  values.isSymbolicLink != true,
+                  values.isRegularFile == true else { continue }
+            total += Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+        }
+        return total
     }
 
     private nonisolated static func locateBrew() -> String? {

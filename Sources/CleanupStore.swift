@@ -118,6 +118,7 @@ struct ScannedSubfolder: Identifiable, Sendable {
 struct ManagedSimulatorDevice: Identifiable, Sendable {
     let udid: String
     let name: String
+    let runtimeIdentifier: String
     let runtimeName: String
     let deviceTypeIdentifier: String?
     let state: String
@@ -139,8 +140,13 @@ struct ManagedSimulatorDevice: Identifiable, Sendable {
 
 struct ManagedSimulatorRuntime: Identifiable, Sendable {
     let identifier: String
+    let runtimeIdentifier: String
     let name: String
     let version: String
+    let build: String
+    let sizeBytes: Int64
+    let state: String
+    let canRemove: Bool
     let isAvailable: Bool
 
     var id: String { identifier }
@@ -172,6 +178,16 @@ private struct SimctlRuntime: Decodable {
     let isAvailable: Bool
 }
 
+private struct SimctlRuntimeImage: Decodable {
+    let identifier: String
+    let runtimeIdentifier: String
+    let version: String
+    let build: String
+    let sizeBytes: Int64
+    let state: String
+    let deletable: Bool
+}
+
 @MainActor
 @Observable
 final class SimulatorManagerStore {
@@ -190,12 +206,28 @@ final class SimulatorManagerStore {
     }
 
     var totalDeviceBytes: Int64 { devices.reduce(0) { $0 + $1.totalBytes } }
+    var totalRuntimeBytes: Int64 { runtimes.reduce(0) { $0 + $1.sizeBytes } }
+    var totalScannedBytes: Int64 { totalDeviceBytes + totalRuntimeBytes }
     var selectedBytes: Int64 {
         devices.filter { selectedDeviceIDs.contains($0.udid) }.reduce(0) { $0 + $1.totalBytes }
     }
     var selectedCount: Int { selectedDeviceIDs.count }
     var selectedBootedCount: Int {
         devices.filter { selectedDeviceIDs.contains($0.udid) && $0.isBooted }.count
+    }
+    func canDeleteRuntime(_ runtime: ManagedSimulatorRuntime) -> Bool {
+        runtime.canRemove && runtime.state.caseInsensitiveCompare("Ready") == .orderedSame
+            && !devices.contains { $0.runtimeIdentifier == runtime.runtimeIdentifier }
+    }
+    func runtimeDeletionBlockReason(_ runtime: ManagedSimulatorRuntime) -> String? {
+        if !runtime.canRemove { return "Xcode 当前不允许移除此运行时。" }
+        if runtime.state.caseInsensitiveCompare("Ready") != .orderedSame { return "运行时当前状态为“\(runtime.state)”，请稍后重新扫描。" }
+        let usingDevices = devices.filter { $0.runtimeIdentifier == runtime.runtimeIdentifier }
+        if !usingDevices.isEmpty { return "\(usingDevices.count) 台模拟器仍关联此运行时。请先删除这些设备，避免设备数据变成不可用。" }
+        return nil
+    }
+    func runtimeDeletionConfirmationText(_ runtime: ManagedSimulatorRuntime) -> String {
+        "将通过 Xcode 模拟器工具删除 iOS \(runtime.version)（构建 \(runtime.build)）运行时，估算释放 \(ByteCountFormatter.string(fromByteCount: runtime.sizeBytes, countStyle: .file))。此操作不会移到废纸篓；以后需要时可从 Xcode 重新下载。"
     }
     var deletionConfirmationText: String {
         let shutdownNote = selectedBootedCount > 0
@@ -277,11 +309,40 @@ final class SimulatorManagerStore {
         }
     }
 
+    func deleteRuntime(_ runtime: ManagedSimulatorRuntime) async {
+        guard !isBusy else { return }
+        guard canDeleteRuntime(runtime) else {
+            message = runtimeDeletionBlockReason(runtime) ?? "运行时状态已变化，请重新扫描。"
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try Self.deleteRuntimeImage(identifier: runtime.identifier)
+            }.value
+            if let logError = cleanupStore.recordSimulatorRuntimeDeletion(runtime) {
+                errorMessage = "运行时已删除，但清理记录写入失败：\(logError)"
+            }
+            let catalog = try await Task.detached(priority: .userInitiated) {
+                try Self.loadCatalog()
+            }.value
+            devices = catalog.devices
+            runtimes = catalog.runtimes
+            message = "已提交删除 iOS \(runtime.version) 运行时。"
+        } catch {
+            message = error.localizedDescription
+        }
+        cleanupStore.recordDiskSnapshot()
+    }
+
     private nonisolated static func loadCatalog() throws -> (devices: [ManagedSimulatorDevice], runtimes: [ManagedSimulatorRuntime]) {
         let deviceData = try runSimctl(["list", "devices", "--json"])
         let runtimeData = try runSimctl(["list", "runtimes", "--json"])
+        let runtimeImageData = try runSimctl(["runtime", "list", "--json"])
         let deviceCatalog = try JSONDecoder().decode(SimctlDeviceCatalog.self, from: deviceData)
         let runtimeCatalog = try JSONDecoder().decode(SimctlRuntimeCatalog.self, from: runtimeData)
+        let runtimeImages = try JSONDecoder().decode([String: SimctlRuntimeImage].self, from: runtimeImageData)
         let runtimeByID = Dictionary(uniqueKeysWithValues: runtimeCatalog.runtimes.map { ($0.identifier, $0.name) })
         var devices: [ManagedSimulatorDevice] = []
         for (runtimeIdentifier, entries) in deviceCatalog.devices {
@@ -290,6 +351,7 @@ final class SimulatorManagerStore {
                 let device = ManagedSimulatorDevice(
                     udid: entry.udid,
                     name: entry.name,
+                    runtimeIdentifier: runtimeIdentifier,
                     runtimeName: runtimeName,
                     deviceTypeIdentifier: entry.deviceTypeIdentifier,
                     state: entry.state,
@@ -307,10 +369,41 @@ final class SimulatorManagerStore {
             }
             return lhs.totalBytes > rhs.totalBytes
         }
-        let runtimes = runtimeCatalog.runtimes.map {
-            ManagedSimulatorRuntime(identifier: $0.identifier, name: $0.name, version: $0.version, isAvailable: $0.isAvailable)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let availabilityByID = Dictionary(uniqueKeysWithValues: runtimeCatalog.runtimes.map { ($0.identifier, $0.isAvailable) })
+        let runtimes = runtimeImages.map { identifier, image in
+            ManagedSimulatorRuntime(
+                identifier: identifier,
+                runtimeIdentifier: image.runtimeIdentifier,
+                name: runtimeByID[image.runtimeIdentifier] ?? "iOS \(image.version)",
+                version: image.version,
+                build: image.build,
+                sizeBytes: image.sizeBytes,
+                state: image.state,
+                canRemove: image.deletable,
+                isAvailable: availabilityByID[image.runtimeIdentifier] ?? true
+            )
+        }.sorted {
+            if $0.name == $1.name { return $0.build.localizedStandardCompare($1.build) == .orderedAscending }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
         return (devices, runtimes)
+    }
+
+    private nonisolated static func deleteRuntimeImage(identifier: String) throws {
+        guard UUID(uuidString: identifier) != nil else { throw SimulatorManagerError.invalidRuntimeIdentifier }
+        let runtimeData = try runSimctl(["runtime", "list", "--json"])
+        let runtimeImages = try JSONDecoder().decode([String: SimctlRuntimeImage].self, from: runtimeData)
+        guard let image = runtimeImages[identifier] else { throw SimulatorManagerError.runtimeNoLongerAvailable }
+        guard image.deletable, image.state.caseInsensitiveCompare("Ready") == .orderedSame else {
+            throw SimulatorManagerError.runtimeStateChanged
+        }
+
+        let deviceData = try runSimctl(["list", "devices", "--json"])
+        let catalog = try JSONDecoder().decode(SimctlDeviceCatalog.self, from: deviceData)
+        guard catalog.devices[image.runtimeIdentifier, default: []].isEmpty else {
+            throw SimulatorManagerError.runtimeStillHasDevices
+        }
+        _ = try runSimctl(["runtime", "delete", identifier])
     }
 
     private nonisolated static func deleteDevice(udid: String) throws {
@@ -356,6 +449,282 @@ final class SimulatorManagerStore {
     }
 }
 
+struct TemporaryBuildArtifact: Identifiable, Sendable {
+    let directoryName: String
+    let projectName: String
+    let size: Int64
+    let compilerFileCount: Int
+    let modifiedAt: Date
+
+    var id: String { directoryName }
+}
+
+private struct TemporaryBuildInventory: Sendable {
+    let artifacts: [TemporaryBuildArtifact]
+    let error: String?
+}
+
+@MainActor
+@Observable
+final class TemporaryBuildManagerStore {
+    private(set) var artifacts: [TemporaryBuildArtifact] = []
+    private(set) var selectedDirectoryNames: Set<String> = []
+    private(set) var isBusy = false
+    private(set) var hasScanned = false
+    var errorMessage: String?
+    var message: String?
+
+    private let cleanupStore: CleanupStore
+
+    init(cleanupStore: CleanupStore) {
+        self.cleanupStore = cleanupStore
+    }
+
+    var projectNames: [String] {
+        Array(Set(artifacts.map(\.projectName))).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    func artifacts(for projectName: String) -> [TemporaryBuildArtifact] {
+        artifacts.filter { $0.projectName == projectName }
+            .sorted { $0.size > $1.size }
+    }
+
+    var selectedCount: Int { selectedDirectoryNames.count }
+    var totalBytes: Int64 { artifacts.reduce(0) { $0 + $1.size } }
+    var selectedBytes: Int64 {
+        artifacts.filter { selectedDirectoryNames.contains($0.directoryName) }
+            .reduce(0) { $0 + $1.size }
+    }
+
+    var confirmationText: String {
+        let selected = artifacts.filter { selectedDirectoryNames.contains($0.directoryName) }
+        let names = selected.prefix(5).map(\.directoryName).joined(separator: "、")
+        let suffix = selected.count > 5 ? "等 \(selected.count) 个目录" : ""
+        return "将把 \(names)\(suffix) 移到废纸篓，约 \(ByteCountFormatter.string(fromByteCount: selectedBytes, countStyle: .file))。这些是按编译产物特征识别的临时目录；如仍需要其中的构建结果，可取消。"
+    }
+
+    func toggleSelection(_ artifact: TemporaryBuildArtifact) {
+        if selectedDirectoryNames.contains(artifact.directoryName) {
+            selectedDirectoryNames.remove(artifact.directoryName)
+        } else {
+            selectedDirectoryNames.insert(artifact.directoryName)
+        }
+    }
+
+    func isSelected(_ artifact: TemporaryBuildArtifact) -> Bool {
+        selectedDirectoryNames.contains(artifact.directoryName)
+    }
+
+    func isProjectFullySelected(_ projectName: String) -> Bool {
+        let projectArtifacts = artifacts(for: projectName)
+        return !projectArtifacts.isEmpty && projectArtifacts.allSatisfy { selectedDirectoryNames.contains($0.directoryName) }
+    }
+
+    func projectHasSelection(_ projectName: String) -> Bool {
+        artifacts(for: projectName).contains { selectedDirectoryNames.contains($0.directoryName) }
+    }
+
+    func toggleProjectSelection(_ projectName: String) {
+        let projectArtifacts = artifacts(for: projectName)
+        guard !projectArtifacts.isEmpty else { return }
+        if isProjectFullySelected(projectName) {
+            projectArtifacts.forEach { selectedDirectoryNames.remove($0.directoryName) }
+        } else {
+            projectArtifacts.forEach { selectedDirectoryNames.insert($0.directoryName) }
+        }
+    }
+
+    func scan() async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        errorMessage = nil
+        message = nil
+        selectedDirectoryNames.removeAll()
+        do {
+            let inventory = await Task.detached(priority: .userInitiated) {
+                Self.loadInventory()
+            }.value
+            artifacts = inventory.artifacts
+            errorMessage = inventory.error
+            hasScanned = true
+        }
+        cleanupStore.recordDiskSnapshot()
+    }
+
+    func trashSelected() async {
+        guard !isBusy, !selectedDirectoryNames.isEmpty else { return }
+        isBusy = true
+        let chosen = artifacts.filter { selectedDirectoryNames.contains($0.directoryName) }
+        var moved = 0
+        var failures: [String] = []
+        for artifact in chosen {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try Self.trash(artifact)
+                }.value
+                moved += 1
+                if let logError = cleanupStore.recordTemporaryBuildDeletion(artifact) {
+                    failures.append("\(artifact.directoryName)：已移到废纸篓，但清理记录写入失败（\(logError)）")
+                }
+                selectedDirectoryNames.remove(artifact.directoryName)
+            } catch {
+                failures.append("\(artifact.directoryName)：\(error.localizedDescription)")
+            }
+        }
+        isBusy = false
+        await scan()
+        if failures.isEmpty {
+            message = "已将 \(moved) 个临时构建目录移到废纸篓。"
+        } else {
+            message = "已移动 \(moved) 个目录；以下项目未移动：\n" + failures.joined(separator: "\n")
+        }
+    }
+
+    private nonisolated static let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true).standardizedFileURL
+    private nonisolated static let minimumCompilerFileCount = 100
+    private nonisolated static let protectedNameFragments = ["release", "review", "archive"]
+
+    private nonisolated static func loadInventory() -> TemporaryBuildInventory {
+        let manager = FileManager.default
+        guard let children = try? manager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return TemporaryBuildInventory(artifacts: [], error: "无法读取系统临时目录。")
+        }
+
+        let currentUID = getuid()
+        var candidates: [(name: String, size: Int64, count: Int, modifiedAt: Date)] = []
+        var skipped = 0
+        for child in children {
+            do {
+                let values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey])
+                guard values.isDirectory == true,
+                      values.isSymbolicLink != true,
+                      try fileOwnerUID(at: child) == currentUID else { continue }
+                guard !protectedNameFragments.contains(where: { child.lastPathComponent.localizedCaseInsensitiveContains($0) }) else { continue }
+                let result = try inspect(child, ownerUID: currentUID)
+                guard result.safe, result.compilerFileCount >= minimumCompilerFileCount else { continue }
+                candidates.append((child.lastPathComponent, result.size, result.compilerFileCount, values.contentModificationDate ?? .distantPast))
+            } catch {
+                skipped += 1
+            }
+        }
+
+        let preferredNames = Dictionary(grouping: candidates, by: { projectKey(for: $0.name) })
+            .mapValues { rows in
+                rows.map { projectPrefix(for: $0.name) }
+                    .max(by: { capitalizationScore($0) < capitalizationScore($1) }) ?? ""
+            }
+        let artifacts = candidates.map { candidate in
+            let key = projectKey(for: candidate.name)
+            let label = preferredNames[key] ?? key
+            return TemporaryBuildArtifact(
+                directoryName: candidate.name,
+                projectName: displayProjectName(label),
+                size: candidate.size,
+                compilerFileCount: candidate.count,
+                modifiedAt: candidate.modifiedAt
+            )
+        }.sorted { $0.size > $1.size }
+        let warning = skipped > 0 ? "有 \(skipped) 个目录因无法读取而跳过。" : nil
+        return TemporaryBuildInventory(artifacts: artifacts, error: warning)
+    }
+
+    private nonisolated static func inspect(_ directory: URL, ownerUID: uid_t) throws -> (safe: Bool, size: Int64, compilerFileCount: Int) {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey, .fileAllocatedSizeKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { throw TemporaryBuildError.unreadable }
+        var size: Int64 = 0
+        var compilerFileCount = 0
+        while let url = enumerator.nextObject() as? URL {
+            let values = try url.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true {
+                return (false, size, compilerFileCount)
+            }
+            if try fileOwnerUID(at: url) != ownerUID {
+                return (false, size, compilerFileCount)
+            }
+            guard values.isRegularFile == true else { continue }
+            size += Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+            if ["o", "pcm", "swiftdeps", "dia"].contains(url.pathExtension.lowercased()) {
+                compilerFileCount += 1
+            }
+        }
+        return (true, size, compilerFileCount)
+    }
+
+    private nonisolated static func trash(_ artifact: TemporaryBuildArtifact) throws {
+        guard !artifact.directoryName.isEmpty,
+              !artifact.directoryName.contains("/"),
+              artifact.directoryName != ".",
+              artifact.directoryName != ".." else { throw TemporaryBuildError.invalidTarget }
+        let target = root.appending(path: artifact.directoryName).standardizedFileURL
+        guard target.deletingLastPathComponent() == root else { throw TemporaryBuildError.invalidTarget }
+        let values = try target.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true, try fileOwnerUID(at: target) == getuid() else {
+            throw TemporaryBuildError.targetChanged
+        }
+        let result = try inspect(target, ownerUID: getuid())
+        guard result.safe, result.compilerFileCount >= minimumCompilerFileCount, result.size == artifact.size else {
+            throw TemporaryBuildError.targetChanged
+        }
+        try FileManager.default.trashItem(at: target, resultingItemURL: nil)
+    }
+
+    private nonisolated static func projectKey(for directoryName: String) -> String {
+        let lowercased = directoryName.lowercased()
+        let stripped = ["-build", "deriveddata"].reduce(lowercased) { value, suffix in
+            value.hasSuffix(suffix) ? String(value.dropLast(suffix.count)) : value
+        }
+        return String(stripped.split(separator: "-", omittingEmptySubsequences: true).first ?? Substring(stripped))
+    }
+
+    private nonisolated static func projectPrefix(for directoryName: String) -> String {
+        let stripped = ["-build", "deriveddata"].reduce(directoryName) { value, suffix in
+            value.lowercased().hasSuffix(suffix) ? String(value.dropLast(suffix.count)) : value
+        }
+        return String(stripped.split(separator: "-", omittingEmptySubsequences: true).first ?? Substring(stripped))
+    }
+
+    private nonisolated static func capitalizationScore(_ name: String) -> Int {
+        name.dropFirst().filter(\.isUppercase).count
+    }
+
+    private nonisolated static func fileOwnerUID(at url: URL) throws -> uid_t {
+        guard let owner = try FileManager.default.attributesOfItem(atPath: url.path)[.ownerAccountID] as? NSNumber else {
+            throw TemporaryBuildError.unreadable
+        }
+        return uid_t(owner.uint32Value)
+    }
+
+    private nonisolated static func displayProjectName(_ name: String) -> String {
+        guard let first = name.first else { return "未识别项目" }
+        return String(first).uppercased() + name.dropFirst()
+    }
+}
+
+private enum TemporaryBuildError: LocalizedError {
+    case unreadable
+    case invalidTarget
+    case targetChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadable: "临时构建目录无法完整读取。"
+        case .invalidTarget: "临时目录目标无效。"
+        case .targetChanged: "目录内容或所有权在扫描后发生变化，请重新扫描。"
+        }
+    }
+}
+
 private enum ConfigurationImportError: LocalizedError {
     case unsupportedSchema
     case invalidRules
@@ -375,16 +744,24 @@ private enum ConfigurationImportError: LocalizedError {
 private enum SimulatorManagerError: LocalizedError {
     case xcodeToolsUnavailable
     case invalidDeviceIdentifier
+    case invalidRuntimeIdentifier
     case deviceNoLongerAvailable
     case deviceStateChanged
+    case runtimeNoLongerAvailable
+    case runtimeStateChanged
+    case runtimeStillHasDevices
     case commandFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .xcodeToolsUnavailable: "无法启动 Xcode 命令行工具。请确认已安装 Xcode，并在 Xcode > Settings > Locations 中选择 Command Line Tools。"
         case .invalidDeviceIdentifier: "模拟器设备标识无效。请重新扫描后再试。"
+        case .invalidRuntimeIdentifier: "模拟器运行时标识无效。请重新扫描后再试。"
         case .deviceNoLongerAvailable: "设备在删除前已从清单中消失，请重新扫描。"
         case .deviceStateChanged: "设备正在切换状态，未执行删除。请等待状态稳定后重新扫描。"
+        case .runtimeNoLongerAvailable: "运行时在删除前已从清单中消失，请重新扫描。"
+        case .runtimeStateChanged: "运行时当前不可删除或状态正在变化，请稍后重新扫描。"
+        case .runtimeStillHasDevices: "仍有模拟器设备关联此运行时。请先在模拟器管理中删除这些设备，再移除运行时。"
         case let .commandFailed(details): "Xcode 模拟器命令执行失败：\(details)"
         }
     }
@@ -508,7 +885,9 @@ final class CleanupStore {
     }
 
     func scanAll(rules: [ConfiguredCleanupRule]) async {
-        guard !rules.isEmpty else { return }
+        guard !isBusy, !rules.isEmpty else { return }
+        isBusy = true
+        defer { isBusy = false }
         for rule in rules { await scanRule(rule) }
         recordDiskSnapshot()
     }
@@ -543,20 +922,20 @@ final class CleanupStore {
     }
 
     func scan(_ configuredRule: ConfiguredCleanupRule) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
         await scanRule(configuredRule)
         recordDiskSnapshot()
     }
 
     private func scanRule(_ configuredRule: ConfiguredCleanupRule) async {
-        guard !isBusy else { return }
         let rule = configuredRule.rule
         guard let expectedURL = rule.resolvedPath else {
             states[configuredRule.id] = ScanState(error: "配置路径无效或不受支持。")
             return
         }
-        isBusy = true
         states[configuredRule.id] = ScanState(isScanning: true)
-        defer { isBusy = false }
 
         do {
             guard FileManager.default.fileExists(atPath: expectedURL.path) else {
@@ -697,6 +1076,38 @@ final class CleanupStore {
             action: "delete_simulator_device",
             consent: "user_confirmed",
             result: "deleted_with_simctl",
+            configVersion: configVersion
+        )
+        return writeLogEntry(entry)
+    }
+
+    func recordSimulatorRuntimeDeletion(_ runtime: ManagedSimulatorRuntime) -> String? {
+        let entry = CleanupLogEntry(
+            timestamp: Date(),
+            ruleID: "simulator-runtime-\(runtime.identifier.lowercased())",
+            title: "Xcode 模拟器运行时 · \(runtime.name)",
+            contents: "版本 \(runtime.version)，构建 \(runtime.build)。移除后需要时可从 Xcode 重新下载。",
+            resolvedPath: "",
+            scannedBytes: runtime.sizeBytes,
+            action: "delete_simulator_runtime",
+            consent: "user_confirmed",
+            result: "deleted_with_simctl",
+            configVersion: configVersion
+        )
+        return writeLogEntry(entry)
+    }
+
+    func recordTemporaryBuildDeletion(_ artifact: TemporaryBuildArtifact) -> String? {
+        let entry = CleanupLogEntry(
+            timestamp: Date(),
+            ruleID: "temporary-build-artifact",
+            title: "临时构建 · \(artifact.projectName)",
+            contents: "包含 \(artifact.compilerFileCount) 个编译产物；目录名：\(artifact.directoryName)。",
+            resolvedPath: "private-tmp/\(artifact.directoryName)",
+            scannedBytes: artifact.size,
+            action: "move_to_trash",
+            consent: "user_confirmed",
+            result: "moved_to_trash",
             configVersion: configVersion
         )
         return writeLogEntry(entry)

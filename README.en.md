@@ -8,15 +8,16 @@ A macOS storage cleanup tool for developers. You start each scan, review descrip
 
 > **Current release:** `0.1.0`, signed with Developer ID and notarized by Apple. The installer supports macOS 14 or later and is not compatible with the Mac App Store.
 
-> **Security:** App Sandbox is disabled so the app can access approved cache directories in the current user's home folder. Import profiles only from sources you trust, and review each target and its impact before cleanup. Ordinary cache cleanup uses macOS Trash; simulator device deletion is permanent.
+> **Security:** App Sandbox is disabled so the app can access approved cache directories in the current user's home folder and a dedicated manager for `/private/tmp` build artifacts. Import profiles only from sources you trust, and review each target and its impact before cleanup. Cache and temporary build cleanup move items to Trash; simulator device deletion is permanent.
 
 ## Features
 
 - **Profile-based cache scans:** Scans are user-initiated. Import profiles and enable rules individually. Each profile file supports one role.
 - **Review before cleanup:** See each configured description, estimated impact, and size. Expand child folders sorted by size. Each level initially shows 10 items; use **Load more** or **Load all** to reveal additional folders. After you select a target and confirm, ordinary cache directories are moved to Trash.
 - **Disk space history:** View capacity for the volume containing your home folder and track available space after manual scans. History stays on this Mac and retains up to 365 points.
-- **Simulator management:** Review Xcode Simulator device states and data sizes. After confirmation, a running device is shut down before the device and its data are permanently deleted. Xcode manages simulator runtimes; this app does not remove runtime files.
-- **Command-line tools:** Use Homebrew to view installed formulae and versions, search, check upgrades, install, upgrade, pin/unpin the current version, or uninstall. Each package change requires confirmation. Pinning can delay security updates; arbitrary historical-version rollback is not provided.
+- **Simulator management:** Review Xcode Simulator device states, data sizes, and runtime sizes. After confirmation, devices are permanently deleted through Xcode tools. Runtimes can also be removed through `simctl`; the app blocks removal while any simulator device still references a runtime. Runtimes can be downloaded again from Xcode when needed.
+- **Temporary builds:** Inspect current-user-owned direct child directories in `/private/tmp` that contain many compiler outputs, grouped by directory-name prefix. Release, review, and archive directories are excluded. Each selected directory moves to Trash after confirmation; later builds must regenerate those outputs.
+- **Command-line tools:** Manually refresh the Homebrew list to see installed formulae, versions, each install directory's size, and an estimated total. You can also search, check upgrades, install, upgrade, pin/unpin the current version, or uninstall. Each package change requires confirmation. Pinning can delay security updates; arbitrary historical-version rollback is not provided.
 - **Local records:** Cleanup logs, imported profiles, and disk history are stored locally and are not uploaded to a project service.
 
 ## How to use
@@ -29,8 +30,8 @@ After launching the app:
 2. Return to **全部** (All) and click **扫描全部缓存** (Scan All Caches). Category selection filters the displayed results; the scan covers all enabled rules whose paths exist on this Mac.
 3. Review descriptions, sizes, and estimated impact. Expand child folders to inspect them; each level is sorted largest first and initially shows 10 items.
 4. Select a rule directory or a displayed child directory, review the confirmation dialog, and choose **移到废纸篓** (Move to Trash).
-5. Open **模拟器管理** (Simulator Management) to review Xcode devices. Device deletion cannot be undone. Manage runtimes in Xcode **Settings > Components**.
-6. Open **命令行工具** (Command-line Tools) to review Homebrew formulae. Search to install; installed formulae can be upgraded, pinned/unpinned, or uninstalled. These actions call the local Homebrew installation and show a confirmation first.
+5. Open **模拟器管理** (Simulator Management) to review Xcode devices and runtimes. Device and runtime deletion are confirmed separately; runtimes with associated simulator devices must have those devices removed first. Xcode **Settings > Components** can download runtimes again.
+6. Open **命令行工具** (Command-line Tools) and click **刷新工具清单** (Refresh Tool List) to manually load Homebrew formulae and install sizes. Search to install; installed formulae can be upgraded, pinned/unpinned, or uninstalled. These actions call the local Homebrew installation and show a confirmation first.
 
 Scan sizes are estimates, not file inventories. The scanner does not inspect filenames and skips hidden files, so displayed sizes may be lower than actual usage.
 

@@ -91,8 +91,9 @@ struct CleanUpForMacOSApp: App {
     var body: some Scene {
         WindowGroup {
             CleanupHomeView(store: store)
-                .frame(minWidth: 760, minHeight: 540)
+                .frame(minWidth: 1040, minHeight: 700)
         }
+        .defaultSize(width: 1200, height: 820)
         .windowResizability(.contentSize)
     }
 }
@@ -100,22 +101,26 @@ struct CleanUpForMacOSApp: App {
 private struct CleanupHomeView: View {
     @State private var store: CleanupStore
     @State private var simulatorStore: SimulatorManagerStore
+    @State private var temporaryBuildStore: TemporaryBuildManagerStore
     @State private var homebrewStore = HomebrewManagerStore()
     @State private var selectedCategory: String? = "全部"
+    @State private var isFullScanInProgress = false
     @State private var showingCleanupConfirmation = false
     @State private var showingConfigurationImporter = false
     @State private var expandedSubfolderRuleIDs: Set<String> = []
+    @State private var expandedOverviewProjectNames: Set<String> = []
 
     init(store: CleanupStore) {
         _store = State(initialValue: store)
         _simulatorStore = State(initialValue: SimulatorManagerStore(cleanupStore: store))
+        _temporaryBuildStore = State(initialValue: TemporaryBuildManagerStore(cleanupStore: store))
     }
 
     private var categories: [String] {
         let ruleCategories = Set(availableRules.map { $0.rule.category })
-            .subtracting(["全部", "模拟器管理", "命令行工具", "清理记录", "配置管理"])
+            .subtracting(["全部", "模拟器管理", "临时构建", "命令行工具", "清理记录", "配置管理"])
             .sorted()
-        return ["全部", "模拟器管理", "命令行工具"] + ruleCategories + ["清理记录", "配置管理"]
+        return ["全部"] + ruleCategories + ["模拟器管理", "临时构建", "命令行工具", "清理记录", "配置管理"]
     }
 
     private var availableRules: [ConfiguredCleanupRule] {
@@ -130,12 +135,12 @@ private struct CleanupHomeView: View {
         (selectedCategory ?? "全部") == "全部" ? availableRules : availableRules.filter { $0.rule.category == selectedCategory }
     }
 
-    private var lowRiskRules: [ConfiguredCleanupRule] {
-        rulesSortedBySize(availableRules.filter { $0.rule.risk == .low })
+    private var visibleLowRiskRules: [ConfiguredCleanupRule] {
+        rulesSortedBySize(visibleRules.filter { $0.rule.risk == .low })
     }
 
-    private var mediumRiskRules: [ConfiguredCleanupRule] {
-        rulesSortedBySize(availableRules.filter { $0.rule.risk == .medium })
+    private var visibleMediumRiskRules: [ConfiguredCleanupRule] {
+        rulesSortedBySize(visibleRules.filter { $0.rule.risk == .medium })
     }
 
     private func rulesSortedBySize(_ rules: [ConfiguredCleanupRule]) -> [ConfiguredCleanupRule] {
@@ -150,17 +155,40 @@ private struct CleanupHomeView: View {
     var body: some View {
         NavigationSplitView {
             List(categories, id: \.self, selection: $selectedCategory) { category in
-                Label(category, systemImage: category == "全部" ? "square.grid.2x2" : (category == "模拟器管理" ? "iphone.gen3" : (category == "命令行工具" ? "terminal" : (category == "清理记录" ? "clock.arrow.circlepath" : (category == "配置管理" ? "slider.horizontal.3" : "folder")))))
+                HStack(spacing: 8) {
+                    Label(category, systemImage: categorySymbol(for: category))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if isCategoryScanning(category) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .accessibilityLabel("正在扫描\(category)")
+                    } else if let size = sidebarSize(for: category) {
+                        let formattedSize = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                        Text((homebrewStore.hasUnknownFormulaSizes && (category == "全部" || category == "命令行工具") ? "≥" : "") + formattedSize)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .accessibilityLabel("扫描占用 \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
+                    }
+                }
                     .tag(category)
             }
             .navigationTitle("清理项目")
             .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
         } detail: {
             Group {
                 if selectedCategory == "模拟器管理" {
                     VStack(spacing: 0) {
                         DiskSpaceOverviewView(current: store.currentDiskSpace, snapshots: store.diskSnapshots)
                         SimulatorManagerView(store: simulatorStore)
+                    }
+                } else if selectedCategory == "临时构建" {
+                    VStack(spacing: 0) {
+                        DiskSpaceOverviewView(current: store.currentDiskSpace, snapshots: store.diskSnapshots)
+                        TemporaryBuildManagerView(store: temporaryBuildStore)
                     }
                 } else if selectedCategory == "命令行工具" {
                     HomebrewManagerView(store: homebrewStore)
@@ -176,18 +204,21 @@ private struct CleanupHomeView: View {
                         DiskSpaceOverviewView(current: store.currentDiskSpace, snapshots: store.diskSnapshots)
                         List {
                             if (selectedCategory ?? "全部") == "全部" {
-                                if !lowRiskRules.isEmpty {
-                                    Section("低风险") {
-                                        ForEach(lowRiskRules) { cleanupRuleRow($0) }
-                                    }
-                                }
-                                if !mediumRiskRules.isEmpty {
-                                    Section("中风险") {
-                                        ForEach(mediumRiskRules) { cleanupRuleRow($0) }
-                                    }
-                                }
+                                overviewSummarySection
+                                simulatorOverviewSection
+                                temporaryBuildOverviewSection
+                                homebrewOverviewSection
                             } else {
-                                ForEach(visibleRules) { cleanupRuleRow($0) }
+                                if !visibleLowRiskRules.isEmpty {
+                                    Section("低风险缓存 · \(visibleLowRiskRules.count) 项 · \(ruleGroupSizeLabel(visibleLowRiskRules))") {
+                                        ForEach(visibleLowRiskRules) { cleanupRuleRow($0) }
+                                    }
+                                }
+                                if !visibleMediumRiskRules.isEmpty {
+                                    Section("中风险缓存 · \(visibleMediumRiskRules.count) 项 · \(ruleGroupSizeLabel(visibleMediumRiskRules))") {
+                                        ForEach(visibleMediumRiskRules) { cleanupRuleRow($0) }
+                                    }
+                                }
                             }
                         }
                         .listStyle(.inset)
@@ -221,20 +252,24 @@ private struct CleanupHomeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                let isScanning = selectedCategory == "模拟器管理" ? simulatorStore.isBusy : (selectedCategory == "命令行工具" ? homebrewStore.isBusy : store.isBusy)
+                let isScanning = isFullScanInProgress || (selectedCategory == "模拟器管理" ? simulatorStore.isBusy : (selectedCategory == "临时构建" ? temporaryBuildStore.isBusy : (selectedCategory == "命令行工具" ? homebrewStore.isBusy : store.isBusy)))
                 let isConfiguration = selectedCategory == "配置管理"
                 let isCleanupHistory = selectedCategory == "清理记录"
                 Button {
                     if selectedCategory == "模拟器管理" {
                         Task { await simulatorStore.scan() }
+                    } else if selectedCategory == "临时构建" {
+                        Task { await temporaryBuildStore.scan() }
                     } else if selectedCategory == "命令行工具" {
                         Task { await homebrewStore.refresh() }
                     } else if isConfiguration {
                         showingConfigurationImporter = true
                     } else if isCleanupHistory {
                         store.refreshCleanupLog()
+                    } else if selectedCategory == "全部" {
+                        scanAllTabs()
                     } else {
-                        refreshAndScanAllRules()
+                        refreshAndScanSelectedRuleCategory()
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -247,10 +282,10 @@ private struct CleanupHomeView: View {
                             }
                         }
                         .frame(width: 16, height: 16)
-                        Text(isConfiguration ? "导入配置" : (isCleanupHistory ? "刷新记录" : (selectedCategory == "模拟器管理" ? "扫描模拟器" : (selectedCategory == "命令行工具" ? "刷新工具清单" : "扫描全部缓存"))))
+                        Text(isConfiguration ? "导入配置" : (isCleanupHistory ? "刷新记录" : (selectedCategory == "模拟器管理" ? "扫描模拟器" : (selectedCategory == "临时构建" ? "扫描临时构建" : (selectedCategory == "命令行工具" ? "刷新工具清单" : (selectedCategory == "全部" ? "扫描全部" : "扫描\(selectedCategory ?? "缓存")"))))))
                     }
                 }
-                .disabled((store.isBusy || simulatorStore.isBusy) && !isCleanupHistory)
+                .disabled((isFullScanInProgress || store.isBusy || simulatorStore.isBusy || temporaryBuildStore.isBusy || homebrewStore.isBusy) && !isCleanupHistory)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -271,10 +306,325 @@ private struct CleanupHomeView: View {
         }
     }
 
-    private func refreshAndScanAllRules() {
+    private func refreshAndScanSelectedRuleCategory() {
         guard store.reloadBundledConfiguration() else { return }
-        let rulesToScan = availableRules
+        guard let category = selectedCategory else { return }
+        let rulesToScan = availableRules.filter { $0.rule.category == category }
         Task { await store.scanAll(rules: rulesToScan) }
+    }
+
+    private func scanAllTabs() {
+        guard !isFullScanInProgress, store.reloadBundledConfiguration() else { return }
+        let rulesToScan = availableRules
+        isFullScanInProgress = true
+        Task {
+            await store.scanAll(rules: rulesToScan)
+            await simulatorStore.scan()
+            await temporaryBuildStore.scan()
+            await homebrewStore.refresh()
+            store.refreshCleanupLog()
+            isFullScanInProgress = false
+        }
+    }
+
+    private func categorySymbol(for category: String) -> String {
+        switch category {
+        case "全部": "square.grid.2x2"
+        case "模拟器管理": "iphone.gen3"
+        case "临时构建": "hammer"
+        case "命令行工具": "terminal"
+        case "清理记录": "clock.arrow.circlepath"
+        case "配置管理": "slider.horizontal.3"
+        default: "folder"
+        }
+    }
+
+    private func isCategoryScanning(_ category: String) -> Bool {
+        if isFullScanInProgress { return true }
+        switch category {
+        case "全部": return isFullScanInProgress
+        case "模拟器管理": return simulatorStore.isBusy
+        case "临时构建": return temporaryBuildStore.isBusy
+        case "命令行工具": return homebrewStore.isBusy
+        case "清理记录", "配置管理": return false
+        default: return availableRules.filter { $0.rule.category == category }.contains { store.states[$0.id]?.isScanning == true }
+        }
+    }
+
+    private func sidebarSize(for category: String) -> Int64? {
+        switch category {
+        case "全部":
+            guard !isFullScanInProgress,
+                  simulatorStore.hasScanned,
+                  simulatorStore.errorMessage == nil,
+                  temporaryBuildStore.hasScanned,
+                  temporaryBuildStore.errorMessage == nil,
+                  homebrewStore.hasLoaded,
+                  homebrewStore.errorMessage == nil,
+                  rulesHaveFinishedScanning(availableRules) else { return nil }
+            return scannedRuleBytes(availableRules) + simulatorStore.totalScannedBytes + temporaryBuildStore.totalBytes + homebrewStore.totalInstalledSize
+        case "模拟器管理":
+            return simulatorStore.hasScanned && simulatorStore.errorMessage == nil ? simulatorStore.totalScannedBytes : nil
+        case "临时构建":
+            return temporaryBuildStore.hasScanned && temporaryBuildStore.errorMessage == nil ? temporaryBuildStore.totalBytes : nil
+        case "命令行工具":
+            return homebrewStore.hasLoaded && homebrewStore.errorMessage == nil ? homebrewStore.totalInstalledSize : nil
+        case "清理记录", "配置管理":
+            return nil
+        default:
+            let categoryRules = availableRules.filter { $0.rule.category == category }
+            guard !categoryRules.isEmpty, rulesHaveFinishedScanning(categoryRules) else { return nil }
+            return scannedRuleBytes(categoryRules)
+        }
+    }
+
+    private func rulesHaveFinishedScanning(_ rules: [ConfiguredCleanupRule]) -> Bool {
+        rules.allSatisfy { rule in
+            guard let state = store.states[rule.id] else { return false }
+            return state.size != nil && state.error == nil
+        }
+    }
+
+    private func scannedRuleBytes(_ rules: [ConfiguredCleanupRule]) -> Int64 {
+        rules.reduce(0) { $0 + (store.states[$1.id]?.size ?? 0) }
+    }
+
+    @ViewBuilder
+    private var overviewSummarySection: some View {
+        Section("空间扫描总览") {
+            if isFullScanInProgress {
+                Label("正在扫描所有项目分类…", systemImage: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(.secondary)
+            } else if let total = sidebarSize(for: "全部") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("已扫描项目占用约 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+                        .font(.headline)
+                    Text("合计包含缓存、模拟器、临时构建和 Homebrew 工具目录的估算占用。各类项目的清理方式不同。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("点击右上角“扫描全部”读取各分类的占用。扫描失败或尚未扫描的分类不会计入总量。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func ruleGroupSizeLabel(_ rules: [ConfiguredCleanupRule]) -> String {
+        guard rulesHaveFinishedScanning(rules) else { return "尚未完成扫描" }
+        return ByteCountFormatter.string(fromByteCount: scannedRuleBytes(rules), countStyle: .file)
+    }
+
+    @ViewBuilder
+    private var simulatorOverviewSection: some View {
+        Section {
+            if !simulatorStore.hasScanned {
+                Text("尚未扫描模拟器。")
+                    .foregroundStyle(.secondary)
+            } else {
+                if let error = simulatorStore.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                }
+                if simulatorStore.devices.isEmpty && simulatorStore.runtimes.isEmpty {
+                    Text("没有发现模拟器设备或运行时。")
+                        .foregroundStyle(.secondary)
+                }
+                if !simulatorStore.devices.isEmpty {
+                    Text("设备 · \(simulatorStore.devices.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(simulatorStore.devices) { device in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(device.name)
+                                    .font(.callout.weight(.medium))
+                                Text("\(device.runtimeName) · \(device.state)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: device.totalBytes, countStyle: .file))
+                                .font(.system(.callout, design: .monospaced).weight(.medium))
+                        }
+                    }
+                }
+                if !simulatorStore.runtimes.isEmpty {
+                    Text("共享运行时 · \(simulatorStore.runtimes.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(simulatorStore.runtimes) { runtime in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(runtime.name)
+                                    .font(.callout.weight(.medium))
+                                Text("构建 \(runtime.build) · \(runtime.state)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: runtime.sizeBytes, countStyle: .file))
+                                .font(.system(.callout, design: .monospaced).weight(.medium))
+                        }
+                    }
+                }
+            }
+        } header: {
+            overviewSectionHeader(
+                "模拟器与运行时",
+                summary: simulatorStore.hasScanned && simulatorStore.errorMessage == nil
+                    ? "\(simulatorStore.devices.count) 台设备 · \(simulatorStore.runtimes.count) 个运行时 · \(ByteCountFormatter.string(fromByteCount: simulatorStore.totalScannedBytes, countStyle: .file))"
+                    : nil,
+                destination: "模拟器管理"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var temporaryBuildOverviewSection: some View {
+        Section {
+            if !temporaryBuildStore.hasScanned {
+                Text("尚未扫描临时构建目录。")
+                    .foregroundStyle(.secondary)
+            } else if let error = temporaryBuildStore.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+            } else if temporaryBuildStore.artifacts.isEmpty {
+                Text("没有发现符合条件的临时构建目录。")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(temporaryBuildStore.projectNames, id: \.self) { projectName in
+                    let artifacts = temporaryBuildStore.artifacts(for: projectName)
+                    DisclosureGroup(
+                        isExpanded: Binding(
+                            get: { expandedOverviewProjectNames.contains(projectName) },
+                            set: { isExpanded in
+                                if isExpanded {
+                                    expandedOverviewProjectNames.insert(projectName)
+                                } else {
+                                    expandedOverviewProjectNames.remove(projectName)
+                                }
+                            }
+                        )
+                    ) {
+                        ForEach(artifacts) { artifact in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(artifact.directoryName)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Text("\(artifact.compilerFileCount.formatted()) 个编译文件 · 最近修改 \(artifact.modifiedAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: artifact.size, countStyle: .file))
+                                    .font(.system(.callout, design: .monospaced).weight(.medium))
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text(projectName)
+                                .font(.callout.weight(.medium))
+                            Spacer()
+                            Text("\(artifacts.count) 个目录 · \(ByteCountFormatter.string(fromByteCount: artifacts.reduce(0) { $0 + $1.size }, countStyle: .file))")
+                                .font(.footnote.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: {
+            overviewSectionHeader(
+                "临时构建",
+                summary: temporaryBuildStore.hasScanned && temporaryBuildStore.errorMessage == nil
+                    ? "\(temporaryBuildStore.artifacts.count) 个目录 · \(ByteCountFormatter.string(fromByteCount: temporaryBuildStore.totalBytes, countStyle: .file))"
+                    : nil,
+                destination: "临时构建"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var homebrewOverviewSection: some View {
+        Section {
+            if !homebrewStore.hasLoaded {
+                Text("尚未读取 Homebrew 工具清单。")
+                    .foregroundStyle(.secondary)
+            } else if let error = homebrewStore.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+            } else if !homebrewStore.brewAvailable {
+                Text("未找到 Homebrew。")
+                    .foregroundStyle(.secondary)
+            } else if homebrewStore.formulas.isEmpty {
+                Text("没有已安装的 Homebrew formula。")
+                    .foregroundStyle(.secondary)
+            } else {
+                DisclosureGroup {
+                    ForEach(homebrewFormulasBySize) { formula in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(formula.name)
+                                    .font(.callout.weight(.medium))
+                                Text("已安装版本：\(formula.installedVersion)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(formula.sizeBytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "大小未知")
+                                .font(.system(.callout, design: .monospaced).weight(.medium))
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text("显示已安装工具")
+                        Spacer()
+                        Text("\(homebrewStore.formulas.count) 个 formula · \(homebrewStore.hasUnknownFormulaSizes ? "≥" : "")\(ByteCountFormatter.string(fromByteCount: homebrewStore.totalInstalledSize, countStyle: .file))")
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("这里显示的是已安装工具占用。卸载请到管理页操作，可能影响依赖这些工具的项目。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            overviewSectionHeader(
+                "已安装命令行工具",
+                summary: homebrewStore.hasLoaded && homebrewStore.errorMessage == nil && homebrewStore.brewAvailable
+                    ? "\(homebrewStore.formulas.count) 个 formula · \(homebrewStore.hasUnknownFormulaSizes ? "≥" : "")\(ByteCountFormatter.string(fromByteCount: homebrewStore.totalInstalledSize, countStyle: .file))"
+                    : nil,
+                destination: "命令行工具"
+            )
+        }
+    }
+
+    private func overviewSectionHeader(_ title: String, summary: String?, destination: String) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let summary {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 6)
+            Button("管理") { selectedCategory = destination }
+                .buttonStyle(.borderless)
+                .font(.caption)
+        }
+    }
+
+    private var homebrewFormulasBySize: [ManagedFormula] {
+        homebrewStore.formulas.sorted { lhs, rhs in
+            let lhsSize = lhs.sizeBytes ?? -1
+            let rhsSize = rhs.sizeBytes ?? -1
+            if lhsSize != rhsSize { return lhsSize > rhsSize }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
     }
 
     @ViewBuilder
@@ -496,7 +846,7 @@ private struct CleanupHistoryView: View {
                                 .foregroundStyle(.secondary)
                         }
                         HStack(spacing: 8) {
-                            Text(entry.action == "move_to_trash" ? "移到废纸篓" : (entry.action == "delete_simulator_device" ? "删除模拟器" : entry.action))
+                            Text(entry.action == "move_to_trash" ? "移到废纸篓" : (entry.action == "delete_simulator_device" ? "删除模拟器" : (entry.action == "delete_simulator_runtime" ? "删除模拟器运行时" : entry.action)))
                             Text("·")
                             Text(ByteCountFormatter.string(fromByteCount: entry.scannedBytes, countStyle: .file))
                             Text("·")
@@ -643,6 +993,12 @@ private struct HomebrewManagerView: View {
                     Text("\(store.brewVersion) · 已安装 \(store.formulas.count) 个 formula · \(store.outdatedCount) 个可升级")
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
+                    Text("formula 安装目录合计约 \(ByteCountFormatter.string(fromByteCount: store.totalInstalledSize, countStyle: .file))\(store.hasUnknownFormulaSizes ? " · 部分工具大小未知" : "")")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Text("按 Homebrew Cellar 中的已安装版本目录估算；依赖 formula 单独计入。")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -722,7 +1078,6 @@ private struct HomebrewManagerView: View {
             }
         }
         .navigationTitle("命令行工具")
-        .task { if !store.hasLoaded { await store.refresh() } }
         .confirmationDialog(pendingAction?.title ?? "确认 Homebrew 操作？", isPresented: Binding(
             get: { pendingAction != nil },
             set: { if !$0 { pendingAction = nil } }
@@ -771,6 +1126,9 @@ private struct HomebrewFormulaRow: View {
                 Text("已安装版本：\(formula.installedVersion)")
                     .font(.footnote.monospacedDigit())
                     .foregroundStyle(.secondary)
+                Text("占用：\(formula.sizeBytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "大小未知")")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Menu {
@@ -797,6 +1155,7 @@ private struct HomebrewFormulaRow: View {
 private struct SimulatorManagerView: View {
     @State private var store: SimulatorManagerStore
     @State private var showingDeleteConfirmation = false
+    @State private var runtimeToDelete: ManagedSimulatorRuntime?
 
     init(store: SimulatorManagerStore) {
         _store = State(initialValue: store)
@@ -846,17 +1205,28 @@ private struct SimulatorManagerView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(runtime.name)
-                                    Text(runtime.isAvailable ? "已安装 · 多台模拟器共用" : "当前不可用")
+                                    Text("构建 \(runtime.build) · \(runtime.state)")
                                         .font(.footnote)
                                         .foregroundStyle(.secondary)
+                                    if let reason = store.runtimeDeletionBlockReason(runtime) {
+                                        Text(reason)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                                 Spacer()
-                                Text("由 Xcode 管理")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .trailing, spacing: 6) {
+                                    Text(ByteCountFormatter.string(fromByteCount: runtime.sizeBytes, countStyle: .file))
+                                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                                    Button("删除运行时…", role: .destructive) {
+                                        runtimeToDelete = runtime
+                                        showingDeleteConfirmation = true
+                                    }
+                                    .disabled(store.isBusy || !store.canDeleteRuntime(runtime))
+                                }
                             }
                         }
-                        Text("运行时占用和移除操作请在 Xcode > Settings > Components 查看。Xcode 会显示可回收空间。")
+                        Text("删除通过 Xcode 的 simctl 运行时管理命令执行。仍有关联模拟器设备的运行时需先删除这些设备；移除后需要时可从 Xcode 重新下载。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -879,6 +1249,7 @@ private struct SimulatorManagerView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("删除所选模拟器…", role: .destructive) {
+                        runtimeToDelete = nil
                         showingDeleteConfirmation = true
                     }
                     .buttonStyle(.borderedProminent)
@@ -890,15 +1261,174 @@ private struct SimulatorManagerView: View {
             }
         }
         .navigationTitle("模拟器管理")
-        .confirmationDialog(store.selectedBootedCount > 0 ? "关闭并删除所选模拟器？" : "删除所选模拟器？", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-            Button(store.selectedBootedCount > 0 ? "关闭并删除所选模拟器" : "删除所选模拟器", role: .destructive) {
-                Task { await store.deleteSelected() }
+        .confirmationDialog(
+            runtimeToDelete.map { "删除 \($0.name) 运行时？" } ?? (store.selectedBootedCount > 0 ? "关闭并删除所选模拟器？" : "删除所选模拟器？"),
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let runtime = runtimeToDelete {
+                Button("删除运行时", role: .destructive) {
+                    Task {
+                        await store.deleteRuntime(runtime)
+                        runtimeToDelete = nil
+                    }
+                }
+            } else {
+                Button(store.selectedBootedCount > 0 ? "关闭并删除所选模拟器" : "删除所选模拟器", role: .destructive) {
+                    Task { await store.deleteSelected() }
+                }
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text(store.deletionConfirmationText)
+            Text(runtimeToDelete.map(store.runtimeDeletionConfirmationText) ?? store.deletionConfirmationText)
         }
         .alert("模拟器管理结果", isPresented: Binding(
+            get: { store.message != nil },
+            set: { if !$0 { store.message = nil } }
+        )) {
+            Button("好", role: .cancel) { store.message = nil }
+        } message: {
+            Text(store.message ?? "")
+        }
+    }
+}
+
+private struct TemporaryBuildManagerView: View {
+    @State private var store: TemporaryBuildManagerStore
+    @State private var showingTrashConfirmation = false
+    @State private var expandedProjectNames: Set<String> = []
+
+    init(store: TemporaryBuildManagerStore) {
+        _store = State(initialValue: store)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("临时构建产物")
+                    .font(.title2.weight(.semibold))
+                Text("按编译文件和目录名识别 /private/tmp 中的项目构建目录。请逐项检查；移入废纸篓后，构建结果需要重新生成。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Label("只显示当前账户拥有、包含大量编译产物且没有符号链接的目录。发布、审核和归档目录会跳过。项目可展开，也可在项目标题处全选。", systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+
+            if store.isBusy && !store.hasScanned {
+                ProgressView("检查临时构建目录…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !store.hasScanned {
+                ContentUnavailableView("尚未扫描临时构建", systemImage: "hammer", description: Text("扫描后会按项目归组显示可检查的临时构建目录。"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if store.artifacts.isEmpty {
+                ContentUnavailableView("没有发现候选目录", systemImage: "checkmark.circle", description: Text("没有找到符合当前编译产物条件的临时目录。"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(store.projectNames, id: \.self) { projectName in
+                        let artifacts = store.artifacts(for: projectName)
+                        Section {
+                            DisclosureGroup(
+                                isExpanded: Binding(
+                                    get: { expandedProjectNames.contains(projectName) },
+                                    set: { isExpanded in
+                                        if isExpanded {
+                                            expandedProjectNames.insert(projectName)
+                                        } else {
+                                            expandedProjectNames.remove(projectName)
+                                        }
+                                    }
+                                )
+                            ) {
+                                ForEach(artifacts) { artifact in
+                                    HStack(spacing: 12) {
+                                        Button { store.toggleSelection(artifact) } label: {
+                                            Image(systemName: store.isSelected(artifact) ? "checkmark.circle.fill" : "circle")
+                                                .foregroundStyle(store.isSelected(artifact) ? Color.accentColor : Color.secondary)
+                                                .font(.title3)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel(store.isSelected(artifact) ? "取消选择 \(artifact.directoryName)" : "选择 \(artifact.directoryName)")
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(artifact.directoryName)
+                                                .font(.callout.weight(.medium))
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                            Text("\(artifact.compilerFileCount.formatted()) 个编译文件 · 最近修改 \(artifact.modifiedAt.formatted(date: .abbreviated, time: .shortened))")
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(ByteCountFormatter.string(fromByteCount: artifact.size, countStyle: .file))
+                                            .font(.system(.callout, design: .monospaced).weight(.semibold))
+                                    }
+                                    .padding(.vertical, 3)
+                                }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Button { store.toggleProjectSelection(projectName) } label: {
+                                        let isFullySelected = store.isProjectFullySelected(projectName)
+                                        let hasSelection = store.projectHasSelection(projectName)
+                                        Image(systemName: isFullySelected ? "checkmark.circle.fill" : (hasSelection ? "minus.circle.fill" : "circle"))
+                                            .foregroundStyle(hasSelection ? Color.accentColor : Color.secondary)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(store.isProjectFullySelected(projectName) ? "取消选择项目 \(projectName)" : "全选项目 \(projectName)")
+
+                                    Text(projectName)
+                                        .font(.headline)
+                                    Spacer()
+                                    Text("\(artifacts.count) 个目录 · \(ByteCountFormatter.string(fromByteCount: artifacts.reduce(0) { $0 + $1.size }, countStyle: .file))")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+
+            if let error = store.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+            }
+
+            if store.selectedCount > 0 {
+                HStack {
+                    Text("已选择 \(store.selectedCount) 个目录 · \(ByteCountFormatter.string(fromByteCount: store.selectedBytes, countStyle: .file))")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("移到废纸篓…", role: .destructive) {
+                        showingTrashConfirmation = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.isBusy)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.bar)
+            }
+        }
+        .navigationTitle("临时构建")
+        .confirmationDialog("确认移到废纸篓？", isPresented: $showingTrashConfirmation, titleVisibility: .visible) {
+            Button("移到废纸篓", role: .destructive) {
+                Task { await store.trashSelected() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(store.confirmationText)
+        }
+        .alert("临时构建清理结果", isPresented: Binding(
             get: { store.message != nil },
             set: { if !$0 { store.message = nil } }
         )) {
