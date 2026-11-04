@@ -8,6 +8,7 @@ private let tooltipHoverLogger = Logger(
     category: "TooltipHover"
 )
 
+@MainActor
 private struct HoverInfoButton<Content: View>: View {
     let accessibilityLabel: String
     let logScope: String
@@ -41,6 +42,7 @@ private struct HoverInfoButton<Content: View>: View {
     }
 }
 
+@MainActor
 private struct TooltipDetailRow: View {
     let label: String
     let value: String
@@ -85,6 +87,7 @@ private struct CleanupConfigurationDocument: FileDocument {
 }
 
 @main
+@MainActor
 struct CleanUpForMacOSApp: App {
     @State private var store = CleanupStore()
 
@@ -98,6 +101,7 @@ struct CleanUpForMacOSApp: App {
     }
 }
 
+@MainActor
 private struct CleanupHomeView: View {
     @State private var store: CleanupStore
     @State private var simulatorStore: SimulatorManagerStore
@@ -670,6 +674,7 @@ private struct CleanupHomeView: View {
     }
 }
 
+@MainActor
 private struct DiskSpaceOverviewView: View {
     private let cardHeight: CGFloat = 99
 
@@ -798,6 +803,7 @@ private struct DiskSpaceOverviewView: View {
     }
 }
 
+@MainActor
 private struct CleanupHistoryView: View {
     let store: CleanupStore
 
@@ -882,6 +888,7 @@ private struct CleanupHistoryView: View {
     }
 }
 
+@MainActor
 private struct ConfigurationManagerView: View {
     let store: CleanupStore
     let importConfigurations: () -> Void
@@ -973,6 +980,7 @@ private struct ConfigurationManagerView: View {
     }
 }
 
+@MainActor
 private struct HomebrewManagerView: View {
     @State private var store: HomebrewManagerStore
     @State private var pendingAction: HomebrewAction?
@@ -1095,6 +1103,7 @@ private struct HomebrewManagerView: View {
     }
 }
 
+@MainActor
 private struct HomebrewFormulaRow: View {
     let formula: ManagedFormula
     let selectAction: (HomebrewAction) -> Void
@@ -1152,6 +1161,7 @@ private struct HomebrewFormulaRow: View {
     }
 }
 
+@MainActor
 private struct SimulatorManagerView: View {
     @State private var store: SimulatorManagerStore
     @State private var showingDeleteConfirmation = false
@@ -1293,6 +1303,7 @@ private struct SimulatorManagerView: View {
     }
 }
 
+@MainActor
 private struct TemporaryBuildManagerView: View {
     @State private var store: TemporaryBuildManagerStore
     @State private var showingTrashConfirmation = false
@@ -1439,6 +1450,7 @@ private struct TemporaryBuildManagerView: View {
     }
 }
 
+@MainActor
 private struct SimulatorDeviceRow: View {
     let device: ManagedSimulatorDevice
     let isSelected: Bool
@@ -1479,6 +1491,7 @@ private struct SimulatorDeviceRow: View {
     }
 }
 
+@MainActor
 private struct CleanupRuleRow: View {
     let configuredRule: ConfiguredCleanupRule
     private var rule: CleanupRule { configuredRule.rule }
@@ -1578,6 +1591,7 @@ private struct CleanupRuleRow: View {
     }
 }
 
+@MainActor
 private struct ScannedSubfolderList: View {
     @State private var visibleCount = 10
 
@@ -1625,6 +1639,7 @@ private struct ScannedSubfolderList: View {
     }
 }
 
+@MainActor
 private struct ScannedSubfolderRow: View {
     @State private var isExpanded = false
 
