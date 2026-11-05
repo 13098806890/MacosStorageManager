@@ -8,36 +8,29 @@ A macOS storage cleanup tool for developers. You start each scan, review descrip
 
 > **Current release:** `0.1.0`, signed with Developer ID and notarized by Apple. The installer supports macOS 14 or later and is not compatible with the Mac App Store.
 
-> **Security:** App Sandbox is disabled so the app can access approved cache directories in the current user's home folder and a dedicated manager for `/private/tmp` build artifacts. Import profiles only from sources you trust, and review each target and its impact before cleanup. Cache and temporary build cleanup move items to Trash; simulator device deletion is permanent.
-
 ## Features
 
-- **Profile-based cache scans:** Scans are user-initiated. Import profiles and enable rules individually. Each profile file supports one role.
-- **Review before cleanup:** See each configured description, estimated impact, and size. Expand child folders sorted by size. Each level initially shows 10 items; use **Load more** or **Load all** to reveal additional folders. After you select a target and confirm, ordinary cache directories are moved to Trash.
-- **Disk space history:** View capacity for the volume containing your home folder and track available space after manual scans. History stays on this Mac and retains up to 365 points.
-- **Simulator management:** Review Xcode Simulator device states, data sizes, and runtime sizes. After confirmation, devices are permanently deleted through Xcode tools. Runtimes can also be removed through `simctl`; the app blocks removal while any simulator device still references a runtime. Runtimes can be downloaded again from Xcode when needed.
-- **Temporary builds:** Inspect current-user-owned direct child directories in `/private/tmp` that contain many compiler outputs, grouped by directory-name prefix. Release, review, and archive directories are excluded. Each selected directory moves to Trash after confirmation; later builds must regenerate those outputs.
-- **Command-line tools:** Manually refresh the Homebrew list to see installed formulae, versions, each install directory's size, and an estimated total. You can also search, check upgrades, install, upgrade, pin/unpin the current version, or uninstall. Each package change requires confirmation. Pinning can delay security updates; arbitrary historical-version rollback is not provided.
-- **Local records:** Cleanup logs, imported profiles, and disk history are stored locally and are not uploaded to a project service.
+- **Storage overview:** See available disk space and how it changes after each scan.
+- **Cache cleanup:** Browse storage usage by Xcode, package managers, developer tools, and browsers, then choose what to clean.
+- **Simulator management:** Review and remove Xcode simulators and runtimes you no longer use.
+- **Temporary build cleanup:** Find leftover temporary build files and reclaim space.
+- **Command-line tools:** View Homebrew tool sizes, search, install, upgrade, pin versions, or uninstall tools.
+- **Profiles and records:** Choose what to scan, import profiles, and review cleanup records stored on your Mac.
+
+## Screenshot
+
+![CleanUpForMacOS storage overview](docs/screenshots/storage-overview.png)
 
 ## How to use
 
-Download the DMG from [GitHub Releases](https://github.com/13098806890/MacosStorageManager/releases), open it, and drag the app to **Applications**. You can also build from source using the steps below.
+Download the DMG from [GitHub Releases](https://github.com/13098806890/MacosStorageManager/releases), open it, and drag the app to **Applications**.
 
-After launching the app:
+1. Enable the items you want to scan in **配置管理** (Configuration Management).
+2. Click **扫描全部** (Scan All) to review storage usage by category.
+3. Read the descriptions and cleanup impact, expand child folders as needed, and select your targets.
+4. Confirm to clean up. Caches and temporary builds move to Trash. Use the dedicated management pages for simulators, runtimes, and command-line tools.
 
-1. Open **配置管理** (Configuration Management) in the sidebar. Enable the rules you want, or import a compatible JSON profile. Imported rules are disabled by default.
-2. Return to **全部** (All) and click **扫描全部缓存** (Scan All Caches). Category selection filters the displayed results; the scan covers all enabled rules whose paths exist on this Mac.
-3. Review descriptions, sizes, and estimated impact. Expand child folders to inspect them; each level is sorted largest first and initially shows 10 items.
-4. Select a rule directory or a displayed child directory, review the confirmation dialog, and choose **移到废纸篓** (Move to Trash).
-5. Open **模拟器管理** (Simulator Management) to review Xcode devices and runtimes. Device and runtime deletion are confirmed separately; runtimes with associated simulator devices must have those devices removed first. Xcode **Settings > Components** can download runtimes again.
-6. Open **命令行工具** (Command-line Tools) and click **刷新工具清单** (Refresh Tool List) to manually load Homebrew formulae and install sizes. Search to install; installed formulae can be upgraded, pinned/unpinned, or uninstalled. These actions call the local Homebrew installation and show a confirmation first.
-
-Scan sizes are estimates, not file inventories. The scanner does not inspect filenames and skips hidden files, so displayed sizes may be lower than actual usage.
-
-## Screenshots
-
-App screenshots are pending. Once captured, they will be added under [`docs/screenshots/`](docs/screenshots/) and shown here. Please do not submit screenshots containing real usernames, cleanup logs, personal filenames, or other machine-specific information.
+> **Before cleanup:** Caches may need to be downloaded or generated again; quit the related apps first. Simulator device deletion is permanent, so save any data you need beforehand. Scan sizes are estimates and may omit hidden files.
 
 ## Build
 
@@ -56,19 +49,11 @@ xcodebuild \
 
 Alternatively, open `CleanUpForMacOS.xcodeproj` in Xcode, select the `CleanUpForMacOS` scheme, then build or run. This project is configured for direct distribution and is not suitable for the Mac App Store.
 
-## Configuration and safety boundaries
+## Privacy and safety
 
-The bundled profile is [`Config/cleanup-rules.json`](Config/cleanup-rules.json). A rule is a deletion proposal, not trusted code, and community proposals are not automatically approved. Each JSON file uses the same schema; users can import multiple profiles and enable rules themselves.
+You start each scan and confirm before cleanup. Profiles, disk history, and cleanup records stay on your Mac and are not uploaded to a project service. Remove personal paths before sharing cleanup records.
 
-Rule paths accept only `$HOME/` followed by static path components. At runtime, the app also checks approved cache roots, the current user's home boundary, and symlinks. Importing a profile cannot expand the allowlist. Enabled rules cannot have duplicate or ancestor/descendant paths. Ordinary cleanup moves data to Trash, but users must still decide whether the target contents are safe to remove. Simulator device deletion is permanent.
-
-Scans show configured descriptions, aggregate sizes, and visible child folders. They do not inspect or display a file inventory. Deeper child folders use a generic description; `subfolderDescriptions` applies only to immediate child folders.
-
-Before adding or changing cleanup rules, read [`AGENTS.md`](AGENTS.md) and [`docs/AI_RULE_AUTHORING.md`](docs/AI_RULE_AUTHORING.md). Every proposed path needs evidence from its owner, a clear account of its contents and regeneration behavior, offline impact, and the smallest appropriate directory boundary. A name containing `cache`, `tmp`, or `build` is not evidence that a path is safe to remove.
-
-## Local data and privacy
-
-Profiles, disk-space history, and cleanup records are stored under `CleanUpForMacOS` in the current user's Application Support directory. Cleanup logs contain resolved local absolute paths; do not commit or publicly share an unredacted log. Capacity data is only used for local display. See [`Config/PrivacyInfo.xcprivacy`](Config/PrivacyInfo.xcprivacy).
+The app accesses cache directories with App Sandbox disabled and is distributed directly. Import profiles only from sources you trust, and review each target and its impact before cleanup. See the [privacy manifest](Config/PrivacyInfo.xcprivacy).
 
 ## Contributing
 
