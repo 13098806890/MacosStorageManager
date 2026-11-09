@@ -12,6 +12,7 @@
 		A10000000000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* PrivacyInfo.xcprivacy */; };
 		A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* HomebrewManagerStore.swift */; };
 		A10000000000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Assets.xcassets */; };
+		A10000000000000000000007 = {isa = PBXBuildFile; fileRef = A20000000000000000000008; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,11 +23,12 @@
 		A20000000000000000000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A20000000000000000000006 /* HomebrewManagerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewManagerStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets/Assets.xcassets"; sourceTree = "<group>"; };
+		A20000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		A30000000000000000000001 = {isa = PBXGroup; children = (A30000000000000000000002 /* Sources */, A30000000000000000000003 /* Config */, A20000000000000000000007 /* Assets.xcassets */, A30000000000000000000004 /* Products */,); sourceTree = "<group>"; };
-		A30000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (A20000000000000000000001 /* CleanUpForMacOSApp.swift */, A20000000000000000000002 /* CleanupStore.swift */, A20000000000000000000006 /* HomebrewManagerStore.swift */,); path = Sources; sourceTree = "<group>"; };
+		A30000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (A20000000000000000000008, A20000000000000000000001 /* CleanUpForMacOSApp.swift */, A20000000000000000000002 /* CleanupStore.swift */, A20000000000000000000006 /* HomebrewManagerStore.swift */,); path = Sources; sourceTree = "<group>"; };
 		A30000000000000000000003 /* Config */ = {isa = PBXGroup; children = (A20000000000000000000003 /* cleanup-rules.json */, A20000000000000000000005 /* PrivacyInfo.xcprivacy */,); path = Config; sourceTree = "<group>"; };
 		A30000000000000000000004 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000004 /* CleanUpForMacOS.app */,); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
@@ -44,7 +46,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */, A10000000000000000000002 /* CleanupStore.swift in Sources */, A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000007, A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */, A10000000000000000000002 /* CleanupStore.swift in Sources */, A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */

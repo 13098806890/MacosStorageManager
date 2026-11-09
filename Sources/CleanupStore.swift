@@ -191,9 +191,12 @@ private struct SimctlRuntimeImage: Decodable {
 @MainActor
 @Observable
 final class SimulatorManagerStore {
+    var commandControl: OperationControl?
     private(set) var devices: [ManagedSimulatorDevice] = []
     private(set) var runtimes: [ManagedSimulatorRuntime] = []
     private(set) var isBusy = false
+    var scanControl: OperationControl?
+    func cancelScan() { scanControl?.cancel() }
     private(set) var hasScanned = false
     private(set) var selectedDeviceIDs: Set<String> = []
     var errorMessage: String?
@@ -241,22 +244,26 @@ final class SimulatorManagerStore {
         isBusy = true
         errorMessage = nil
         selectedDeviceIDs.removeAll()
-        defer { isBusy = false }
+        let control = OperationControl(); scanControl = control
+        control.report("读取模拟器和运行时清单…")
+        defer { isBusy = false; scanControl = nil }
         do {
             let catalog = try await Task.detached(priority: .userInitiated) {
-                try Self.loadCatalog()
+                try Self.loadCatalog(control: control)
             }.value
+            try control.check()
             devices = catalog.devices
             runtimes = catalog.runtimes
             hasScanned = true
         } catch {
-            errorMessage = error.localizedDescription
+            devices = []; runtimes = []; hasScanned = false
+            errorMessage = error is CancellationError ? "操作已取消，请重新扫描。" : error.localizedDescription
         }
         cleanupStore.recordDiskSnapshot()
     }
 
     func toggleSelection(_ device: ManagedSimulatorDevice) {
-        guard device.canDelete else { return }
+        guard !isBusy, device.canDelete else { return }
         if selectedDeviceIDs.contains(device.udid) {
             selectedDeviceIDs.remove(device.udid)
         } else {
@@ -271,7 +278,9 @@ final class SimulatorManagerStore {
     func deleteSelected() async {
         guard !isBusy, !selectedDeviceIDs.isEmpty else { return }
         isBusy = true
-        defer { isBusy = false }
+        let control = OperationControl(); commandControl = control
+        control.report("执行模拟器变更…")
+        defer { isBusy = false; commandControl = nil }
 
         let selected = devices.filter { selectedDeviceIDs.contains($0.udid) }
         var deleted: [String] = []
@@ -279,7 +288,7 @@ final class SimulatorManagerStore {
         for device in selected {
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try Self.deleteDevice(udid: device.udid)
+                    try Self.deleteDevice(udid: device.udid, control: control)
                 }.value
                 if let logError = cleanupStore.recordSimulatorDeviceDeletion(device) {
                     failures.append("\(device.name)：设备已删除，但清理记录写入失败（\(logError)）")
@@ -293,13 +302,13 @@ final class SimulatorManagerStore {
 
         do {
             let catalog = try await Task.detached(priority: .userInitiated) {
-                try Self.loadCatalog()
+                try Self.loadCatalog(control: control)
             }.value
             devices = catalog.devices
             runtimes = catalog.runtimes
             hasScanned = true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error is CancellationError ? "操作已取消，请重新扫描。" : error.localizedDescription
         }
 
         if failures.isEmpty {
@@ -316,16 +325,18 @@ final class SimulatorManagerStore {
             return
         }
         isBusy = true
-        defer { isBusy = false }
+        let control = OperationControl(); commandControl = control
+        control.report("执行模拟器变更…")
+        defer { isBusy = false; commandControl = nil }
         do {
             try await Task.detached(priority: .userInitiated) {
-                try Self.deleteRuntimeImage(identifier: runtime.identifier)
+                try Self.deleteRuntimeImage(identifier: runtime.identifier, control: control)
             }.value
             if let logError = cleanupStore.recordSimulatorRuntimeDeletion(runtime) {
                 errorMessage = "运行时已删除，但清理记录写入失败：\(logError)"
             }
             let catalog = try await Task.detached(priority: .userInitiated) {
-                try Self.loadCatalog()
+                try Self.loadCatalog(control: control)
             }.value
             devices = catalog.devices
             runtimes = catalog.runtimes
@@ -336,10 +347,10 @@ final class SimulatorManagerStore {
         cleanupStore.recordDiskSnapshot()
     }
 
-    private nonisolated static func loadCatalog() throws -> (devices: [ManagedSimulatorDevice], runtimes: [ManagedSimulatorRuntime]) {
-        let deviceData = try runSimctl(["list", "devices", "--json"])
-        let runtimeData = try runSimctl(["list", "runtimes", "--json"])
-        let runtimeImageData = try runSimctl(["runtime", "list", "--json"])
+    private nonisolated static func loadCatalog(control: OperationControl? = nil) throws -> (devices: [ManagedSimulatorDevice], runtimes: [ManagedSimulatorRuntime]) {
+        let deviceData = try runSimctl(["list", "devices", "--json"], control: control)
+        let runtimeData = try runSimctl(["list", "runtimes", "--json"], control: control)
+        let runtimeImageData = try runSimctl(["runtime", "list", "--json"], control: control)
         let deviceCatalog = try JSONDecoder().decode(SimctlDeviceCatalog.self, from: deviceData)
         let runtimeCatalog = try JSONDecoder().decode(SimctlRuntimeCatalog.self, from: runtimeData)
         let runtimeImages = try JSONDecoder().decode([String: SimctlRuntimeImage].self, from: runtimeImageData)
@@ -389,26 +400,26 @@ final class SimulatorManagerStore {
         return (devices, runtimes)
     }
 
-    private nonisolated static func deleteRuntimeImage(identifier: String) throws {
+    private nonisolated static func deleteRuntimeImage(identifier: String, control: OperationControl? = nil) throws {
         guard UUID(uuidString: identifier) != nil else { throw SimulatorManagerError.invalidRuntimeIdentifier }
-        let runtimeData = try runSimctl(["runtime", "list", "--json"])
+        let runtimeData = try runSimctl(["runtime", "list", "--json"], control: control)
         let runtimeImages = try JSONDecoder().decode([String: SimctlRuntimeImage].self, from: runtimeData)
         guard let image = runtimeImages[identifier] else { throw SimulatorManagerError.runtimeNoLongerAvailable }
         guard image.deletable, image.state.caseInsensitiveCompare("Ready") == .orderedSame else {
             throw SimulatorManagerError.runtimeStateChanged
         }
 
-        let deviceData = try runSimctl(["list", "devices", "--json"])
+        let deviceData = try runSimctl(["list", "devices", "--json"], control: control)
         let catalog = try JSONDecoder().decode(SimctlDeviceCatalog.self, from: deviceData)
         guard catalog.devices[image.runtimeIdentifier, default: []].isEmpty else {
             throw SimulatorManagerError.runtimeStillHasDevices
         }
-        _ = try runSimctl(["runtime", "delete", identifier])
+        _ = try runSimctl(["runtime", "delete", identifier], control: control)
     }
 
-    private nonisolated static func deleteDevice(udid: String) throws {
+    private nonisolated static func deleteDevice(udid: String, control: OperationControl? = nil) throws {
         guard UUID(uuidString: udid) != nil else { throw SimulatorManagerError.invalidDeviceIdentifier }
-        let deviceData = try runSimctl(["list", "devices", "--json"])
+        let deviceData = try runSimctl(["list", "devices", "--json"], control: control)
         let catalog = try JSONDecoder().decode(SimctlDeviceCatalog.self, from: deviceData)
         guard let device = catalog.devices.values.lazy.flatMap({ $0 }).first(where: {
             $0.udid.caseInsensitiveCompare(udid) == .orderedSame
@@ -417,35 +428,22 @@ final class SimulatorManagerStore {
         }
 
         if device.state.caseInsensitiveCompare("Booted") == .orderedSame {
-            _ = try runSimctl(["shutdown", udid])
+            _ = try runSimctl(["shutdown", udid], control: control)
         } else if device.state.caseInsensitiveCompare("Shutdown") != .orderedSame && device.isAvailable != false {
             throw SimulatorManagerError.deviceStateChanged
         }
 
-        _ = try runSimctl(["delete", udid])
+        _ = try runSimctl(["delete", udid], control: control)
     }
 
-    private nonisolated static func runSimctl(_ arguments: [String]) throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl"] + arguments
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        do {
-            try process.run()
-        } catch {
-            throw SimulatorManagerError.xcodeToolsUnavailable
+    private nonisolated static func runSimctl(_ arguments: [String], control: OperationControl? = nil) throws -> Data {
+        control?.report("Xcode：" + arguments.joined(separator: " "))
+        let result = try CommandRunner.run(executable: "/usr/bin/xcrun", arguments: ["simctl"] + arguments, control: control)
+        guard result.status == 0 else {
+            let details = String(decoding: result.error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw SimulatorManagerError.commandFailed(details.isEmpty ? "xcrun simctl 返回错误。" : details)
         }
-        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorOutput = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let details = String(data: errorOutput, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SimulatorManagerError.commandFailed(details?.isEmpty == false ? details! : "xcrun simctl 返回错误。")
-        }
-        return output
+        return result.output
     }
 }
 
@@ -454,6 +452,7 @@ struct TemporaryBuildArtifact: Identifiable, Sendable {
     let projectName: String
     let size: Int64
     let compilerFileCount: Int
+    let fingerprint: DirectoryFingerprint
     let modifiedAt: Date
 
     var id: String { directoryName }
@@ -470,6 +469,8 @@ final class TemporaryBuildManagerStore {
     private(set) var artifacts: [TemporaryBuildArtifact] = []
     private(set) var selectedDirectoryNames: Set<String> = []
     private(set) var isBusy = false
+    var scanControl: OperationControl?
+    func cancelScan() { scanControl?.cancel() }
     private(set) var hasScanned = false
     var errorMessage: String?
     var message: String?
@@ -505,7 +506,15 @@ final class TemporaryBuildManagerStore {
         return "将把 \(names)\(suffix) 移到废纸篓，约 \(ByteCountFormatter.string(fromByteCount: selectedBytes, countStyle: .file))。这些是按编译产物特征识别的临时目录；如仍需要其中的构建结果，可取消。"
     }
 
+    var cleanupConfirmationItems: [CleanupConfirmationItem] {
+        artifacts.filter { selectedDirectoryNames.contains($0.directoryName) }.map {
+            CleanupConfirmationItem(id: $0.id, title: $0.projectName, path: "/private/tmp/" + $0.directoryName,
+                bytes: $0.size, impact: "编译产物需要重新生成。请先结束相关构建；目录内容有变化时将跳过清理。")
+        }
+    }
+
     func toggleSelection(_ artifact: TemporaryBuildArtifact) {
+        guard !isBusy else { return }
         if selectedDirectoryNames.contains(artifact.directoryName) {
             selectedDirectoryNames.remove(artifact.directoryName)
         } else {
@@ -527,6 +536,7 @@ final class TemporaryBuildManagerStore {
     }
 
     func toggleProjectSelection(_ projectName: String) {
+        guard !isBusy else { return }
         let projectArtifacts = artifacts(for: projectName)
         guard !projectArtifacts.isEmpty else { return }
         if isProjectFullySelected(projectName) {
@@ -543,13 +553,21 @@ final class TemporaryBuildManagerStore {
         errorMessage = nil
         message = nil
         selectedDirectoryNames.removeAll()
+        let control = OperationControl(); scanControl = control
+        control.report("检查临时构建目录…")
+        defer { scanControl = nil }
         do {
-            let inventory = await Task.detached(priority: .userInitiated) {
-                Self.loadInventory()
+            let inventory = try await Task.detached(priority: .userInitiated) {
+                try Self.loadInventory(control: control)
             }.value
+            try control.check()
             artifacts = inventory.artifacts
             errorMessage = inventory.error
             hasScanned = true
+        } catch {
+            artifacts = []
+            hasScanned = false
+            errorMessage = error is CancellationError ? "扫描已取消。" : error.localizedDescription
         }
         cleanupStore.recordDiskSnapshot()
     }
@@ -587,7 +605,7 @@ final class TemporaryBuildManagerStore {
     private nonisolated static let minimumCompilerFileCount = 100
     private nonisolated static let protectedNameFragments = ["release", "review", "archive"]
 
-    private nonisolated static func loadInventory() -> TemporaryBuildInventory {
+    private nonisolated static func loadInventory(control: OperationControl? = nil) throws -> TemporaryBuildInventory {
         let manager = FileManager.default
         guard let children = try? manager.contentsOfDirectory(
             at: root,
@@ -598,18 +616,23 @@ final class TemporaryBuildManagerStore {
         }
 
         let currentUID = getuid()
-        var candidates: [(name: String, size: Int64, count: Int, modifiedAt: Date)] = []
+        var candidates: [(name: String, size: Int64, count: Int, fingerprint: DirectoryFingerprint, modifiedAt: Date)] = []
         var skipped = 0
         for child in children {
+            try control?.check()
             do {
                 let values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey])
                 guard values.isDirectory == true,
                       values.isSymbolicLink != true,
                       try fileOwnerUID(at: child) == currentUID else { continue }
                 guard !protectedNameFragments.contains(where: { child.lastPathComponent.localizedCaseInsensitiveContains($0) }) else { continue }
-                let result = try inspect(child, ownerUID: currentUID)
+                let fingerprint = try DirectoryFingerprint.capture(child, control: control)
+                let result = try inspect(child, ownerUID: currentUID, control: control)
                 guard result.safe, result.compilerFileCount >= minimumCompilerFileCount else { continue }
-                candidates.append((child.lastPathComponent, result.size, result.compilerFileCount, values.contentModificationDate ?? .distantPast))
+                guard try DirectoryFingerprint.capture(child, control: control) == fingerprint else { skipped += 1; continue }
+                candidates.append((child.lastPathComponent, result.size, result.compilerFileCount, fingerprint, values.contentModificationDate ?? .distantPast))
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 skipped += 1
             }
@@ -628,6 +651,7 @@ final class TemporaryBuildManagerStore {
                 projectName: displayProjectName(label),
                 size: candidate.size,
                 compilerFileCount: candidate.count,
+                fingerprint: candidate.fingerprint,
                 modifiedAt: candidate.modifiedAt
             )
         }.sorted { $0.size > $1.size }
@@ -635,16 +659,19 @@ final class TemporaryBuildManagerStore {
         return TemporaryBuildInventory(artifacts: artifacts, error: warning)
     }
 
-    private nonisolated static func inspect(_ directory: URL, ownerUID: uid_t) throws -> (safe: Bool, size: Int64, compilerFileCount: Int) {
+    private nonisolated static func inspect(_ directory: URL, ownerUID: uid_t, control: OperationControl? = nil) throws -> (safe: Bool, size: Int64, compilerFileCount: Int) {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey, .fileAllocatedSizeKey, .fileSizeKey]
+        var enumerationFailed = false
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
+            options: [],
+            errorHandler: { _, _ in enumerationFailed = true; return false }
         ) else { throw TemporaryBuildError.unreadable }
         var size: Int64 = 0
         var compilerFileCount = 0
         while let url = enumerator.nextObject() as? URL {
+            try control?.check()
             let values = try url.resourceValues(forKeys: keys)
             if values.isSymbolicLink == true {
                 return (false, size, compilerFileCount)
@@ -658,6 +685,8 @@ final class TemporaryBuildManagerStore {
                 compilerFileCount += 1
             }
         }
+        if enumerationFailed { throw TemporaryBuildError.unreadable }
+        try control?.check()
         return (true, size, compilerFileCount)
     }
 
@@ -676,6 +705,9 @@ final class TemporaryBuildManagerStore {
         guard result.safe, result.compilerFileCount >= minimumCompilerFileCount, result.size == artifact.size else {
             throw TemporaryBuildError.targetChanged
         }
+        guard try DirectoryFingerprint.capture(target) == artifact.fingerprint else { throw TemporaryBuildError.targetChanged }
+        let current = try target.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard current.isDirectory == true, current.isSymbolicLink != true, try fileOwnerUID(at: target) == getuid() else { throw TemporaryBuildError.targetChanged }
         try FileManager.default.trashItem(at: target, resultingItemURL: nil)
     }
 
@@ -767,9 +799,20 @@ private enum SimulatorManagerError: LocalizedError {
     }
 }
 
-private struct CleanupSelection: Hashable {
+struct CleanupSelection: Hashable {
     let ruleID: String
     let subfolderPath: String?
+
+    static func toggling(_ target: Self, in selections: Set<Self>) -> Set<Self> {
+        if selections.contains(target) { return selections.subtracting([target]) }
+        var result = selections.filter { existing in
+            guard existing.ruleID == target.ruleID else { return true }
+            guard let lhs = existing.subfolderPath, let rhs = target.subfolderPath else { return false }
+            return !(lhs == rhs || lhs.hasPrefix(rhs + "/") || rhs.hasPrefix(lhs + "/"))
+        }
+        result.insert(target)
+        return result
+    }
 }
 
 enum CleanupRisk: String, Codable {
@@ -779,11 +822,20 @@ enum CleanupRisk: String, Codable {
     var label: String { self == .low ? "低风险" : "中风险" }
 }
 
+struct CleanupConfirmationItem: Identifiable {
+    let id: String
+    let title: String
+    let path: String
+    let bytes: Int64
+    let impact: String
+}
+
 struct ScanState {
     var size: Int64?
     var subfolders: [ScannedSubfolder]
     var isScanning = false
     var error: String?
+    var fingerprints: [String: DirectoryFingerprint] = [:]
 
     init(size: Int64? = nil, subfolders: [ScannedSubfolder] = [], isScanning: Bool = false, error: String? = nil) {
         self.size = size
@@ -820,6 +872,8 @@ final class CleanupStore {
     private(set) var cleanupLogError: String?
     private var selectedForCleanup: Set<CleanupSelection> = []
     private(set) var isBusy = false
+    var scanControl: OperationControl?
+    func cancelScan() { scanControl?.cancel() }
     private(set) var configVersion = ""
     var message: String?
 
@@ -880,6 +934,19 @@ final class CleanupStore {
         }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
+    var cleanupConfirmationItems: [CleanupConfirmationItem] {
+        rules.flatMap { configured -> [CleanupConfirmationItem] in
+            guard let state = states[configured.id], state.error == nil else { return [] }
+            return selectedForCleanup.filter { $0.ruleID == configured.id }.map { selection in
+                let folder = selection.subfolderPath.flatMap { Self.findSubfolder($0, in: state.subfolders) }
+                return CleanupConfirmationItem(id: configured.id + (selection.subfolderPath ?? ""),
+                    title: configured.rule.title,
+                    path: configured.rule.path + (selection.subfolderPath.map { "/" + $0 } ?? ""),
+                    bytes: folder?.size ?? state.size ?? 0, impact: configured.rule.impact)
+            }.sorted { $0.path < $1.path }
+        }
+    }
+
     var cleanupConfirmationText: String {
         "将所选的 \(scannedSelectionCount) 个缓存目录或子目录（约 \(selectedSizeDescription)）移到废纸篓。应用会记录规则、路径、扫描大小和操作结果。"
     }
@@ -887,34 +954,27 @@ final class CleanupStore {
     func scanAll(rules: [ConfiguredCleanupRule]) async {
         guard !isBusy, !rules.isEmpty else { return }
         isBusy = true
-        defer { isBusy = false }
-        for rule in rules { await scanRule(rule) }
+        let control = OperationControl(); scanControl = control
+        defer { isBusy = false; scanControl = nil }
+        for (index, rule) in rules.enumerated() {
+            do { try control.check() } catch { break }
+            control.report("扫描 \(index + 1)/\(rules.count)：\(rule.rule.title)")
+            await scanRule(rule)
+        }
         recordDiskSnapshot()
     }
 
     func toggleSelection(_ configuredRule: ConfiguredCleanupRule) {
+        guard !isBusy, states[configuredRule.id]?.error == nil, states[configuredRule.id]?.size ?? 0 > 0 else { return }
         let selection = CleanupSelection(ruleID: configuredRule.id, subfolderPath: nil)
-        guard states[configuredRule.id]?.size ?? 0 > 0 else { return }
-        if selectedForCleanup.contains(selection) {
-            selectedForCleanup.remove(selection)
-        } else {
-            selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
-            selectedForCleanup.insert(selection)
-        }
+        selectedForCleanup = CleanupSelection.toggling(selection, in: selectedForCleanup)
     }
 
     func toggleSubfolderSelection(_ subfolder: ScannedSubfolder, in configuredRule: ConfiguredCleanupRule) {
-        guard subfolder.size > 0 else { return }
+        guard !isBusy, states[configuredRule.id]?.error == nil,
+              states[configuredRule.id]?.fingerprints[subfolder.relativePath] != nil, subfolder.size > 0 else { return }
         let selection = CleanupSelection(ruleID: configuredRule.id, subfolderPath: subfolder.relativePath)
-        if selectedForCleanup.contains(selection) {
-            selectedForCleanup.remove(selection)
-        } else {
-            selectedForCleanup = selectedForCleanup.filter {
-                guard $0.ruleID == configuredRule.id, let existingPath = $0.subfolderPath else { return true }
-                return !Self.pathsOverlap(existingPath, subfolder.relativePath)
-            }
-            selectedForCleanup.insert(selection)
-        }
+        selectedForCleanup = CleanupSelection.toggling(selection, in: selectedForCleanup)
     }
 
     func isSelected(_ configuredRule: ConfiguredCleanupRule, subfolderPath: String? = nil) -> Bool {
@@ -924,7 +984,8 @@ final class CleanupStore {
     func scan(_ configuredRule: ConfiguredCleanupRule) async {
         guard !isBusy else { return }
         isBusy = true
-        defer { isBusy = false }
+        scanControl = OperationControl()
+        defer { isBusy = false; scanControl = nil }
         await scanRule(configuredRule)
         recordDiskSnapshot()
     }
@@ -936,21 +997,28 @@ final class CleanupStore {
             return
         }
         states[configuredRule.id] = ScanState(isScanning: true)
-
+        selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
+        let control = scanControl
         do {
             guard FileManager.default.fileExists(atPath: expectedURL.path) else {
                 states[configuredRule.id] = ScanState(error: "这个目录当前不存在。")
                 return
             }
-            try rejectSymbolicLink(at: expectedURL)
+            try Self.rejectSymbolicLink(at: expectedURL)
             try ensureTargetResolvesInsideHome(expectedURL)
-            let result = await Task.detached(priority: .userInitiated) {
-                Self.directoryBreakdown(at: expectedURL, descriptions: rule.subfolderDescriptions ?? [:])
+            let result = try await Task.detached(priority: .userInitiated) {
+                let fingerprints = try DirectoryFingerprint.captureTree(expectedURL, control: control)
+                let result = try Self.directoryBreakdown(at: expectedURL, descriptions: rule.subfolderDescriptions ?? [:], control: control)
+                guard try DirectoryFingerprint.capture(expectedURL, control: control) == fingerprints[""] else { throw OperationFailure.changed }
+                try control?.check()
+                return (result, fingerprints)
             }.value
-            states[configuredRule.id] = ScanState(size: result.size, subfolders: result.subfolders)
+            try control?.check()
+            states[configuredRule.id] = ScanState(size: result.0.size, subfolders: result.0.subfolders)
+            states[configuredRule.id]?.fingerprints = result.1
             selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
         } catch {
-            states[configuredRule.id] = ScanState(error: error.localizedDescription)
+            states[configuredRule.id] = ScanState(error: error is CancellationError ? "扫描已取消，请重新扫描。" : error.localizedDescription)
         }
     }
 
@@ -981,7 +1049,13 @@ final class CleanupStore {
                 guard FileManager.default.fileExists(atPath: expectedURL.path) else {
                     throw CleanupError.targetNoLongerExists
                 }
-                try rejectSymbolicLinksAlongPath(from: rootURL, to: expectedURL)
+                try Self.rejectSymbolicLinksAlongPath(from: rootURL, to: expectedURL)
+                try ensureTargetResolvesInsideHome(expectedURL)
+                guard let scannedFingerprint = states[configuredRule.id]?.fingerprints[subfolder?.relativePath ?? ""] else { throw OperationFailure.changed }
+                try await Task.detached(priority: .userInitiated) {
+                    try DirectoryFingerprint.requireUnchanged(expectedURL, expected: scannedFingerprint)
+                }.value
+                try Self.rejectSymbolicLinksAlongPath(from: rootURL, to: expectedURL)
                 try ensureTargetResolvesInsideHome(expectedURL)
                 try FileManager.default.trashItem(at: expectedURL, resultingItemURL: nil)
                 let logError = appendLog(configuredRule: configuredRule, title: displayTitle, contents: contents, path: expectedURL.path, bytes: scannedBytes, result: "moved_to_trash")
@@ -991,10 +1065,19 @@ final class CleanupStore {
                         guard $0.ruleID == configuredRule.id, let selectedPath = $0.subfolderPath else { return true }
                         return !Self.pathsOverlap(selectedPath, subfolder.relativePath)
                     }
-                    let result = await Task.detached(priority: .userInitiated) {
-                        Self.directoryBreakdown(at: rootURL, descriptions: rule.subfolderDescriptions ?? [:])
-                    }.value
-                    states[configuredRule.id] = ScanState(size: result.size, subfolders: result.subfolders)
+                    do {
+                        let result = try await Task.detached(priority: .userInitiated) {
+                            try Self.directoryBreakdown(at: rootURL, descriptions: rule.subfolderDescriptions ?? [:])
+                        }.value
+                        let fingerprints = states[configuredRule.id]?.fingerprints ?? [:]
+                        states[configuredRule.id] = ScanState(size: result.size, subfolders: result.subfolders)
+                        states[configuredRule.id]?.fingerprints = fingerprints
+                    } catch {
+                        // The Trash operation already succeeded. Do not report it as a failed move.
+                        selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
+                        states[configuredRule.id] = ScanState(error: "已移到废纸篓，但刷新目录失败。请重新扫描。")
+                        failures.append("\(displayTitle)：已移到废纸篓，但刷新目录失败。")
+                    }
                 } else {
                     selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
                     states[configuredRule.id] = ScanState(size: 0)
@@ -1002,6 +1085,8 @@ final class CleanupStore {
                 cleaned += 1
                 if let logError { failures.append("\(displayTitle)：已移到废纸篓，但清理记录写入失败（\(logError)）") }
             } catch {
+                selectedForCleanup = selectedForCleanup.filter { $0.ruleID != configuredRule.id }
+                states[configuredRule.id] = ScanState(error: error.localizedDescription)
                 let logError = appendLog(configuredRule: configuredRule, title: displayTitle, contents: contents, path: expectedURL.path, bytes: scannedBytes, result: "failed: \(error.localizedDescription)")
                 failures.append("\(displayTitle)：\(error.localizedDescription)")
                 if let logError { failures.append("清理记录写入失败：\(logError)") }
@@ -1134,18 +1219,19 @@ final class CleanupStore {
         }
     }
 
-    private func rejectSymbolicLink(at url: URL) throws {
+    private nonisolated static func rejectSymbolicLink(at url: URL) throws {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         if values.isSymbolicLink == true { throw CleanupError.symbolicLinkNotAllowed }
     }
 
-    private func rejectSymbolicLinksAlongPath(from root: URL, to target: URL) throws {
-        try rejectSymbolicLink(at: root)
+    nonisolated static func rejectSymbolicLinksAlongPath(from root: URL, to target: URL) throws {
+        guard target.standardizedFileURL.path == root.standardizedFileURL.path || target.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") else { throw CleanupError.pathResolvesOutsideApprovedCache }
+        try Self.rejectSymbolicLink(at: root)
         let relative = String(target.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
         var current = root
         for component in relative.split(separator: "/") {
             current.append(path: String(component))
-            try rejectSymbolicLink(at: current)
+            try Self.rejectSymbolicLink(at: current)
         }
     }
 
@@ -1291,22 +1377,28 @@ final class CleanupStore {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "CleanUpForMacOS")
     }
 
-    private nonisolated static func directoryBreakdown(at url: URL, descriptions: [String: String]) -> (size: Int64, subfolders: [ScannedSubfolder]) {
-        let tree = scanDirectory(at: url, relativePath: "", descriptions: descriptions)
+    nonisolated static func directoryBreakdown(at url: URL, descriptions: [String: String], control: OperationControl? = nil) throws -> (size: Int64, subfolders: [ScannedSubfolder]) {
+        let tree = try scanDirectory(at: url, relativePath: "", descriptions: descriptions, control: control)
         return (tree.size, tree.subfolders)
     }
 
-    private nonisolated static func scanDirectory(at url: URL, relativePath: String, descriptions: [String: String]) -> (size: Int64, subfolders: [ScannedSubfolder]) {
+    private nonisolated static func scanDirectory(at url: URL, relativePath: String, descriptions: [String: String], control: OperationControl?) throws -> (size: Int64, subfolders: [ScannedSubfolder]) {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey, .fileAllocatedSizeKey, .fileSizeKey]
-        guard let children = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]) else { return (0, []) }
+        try control?.check()
+        let children: [URL]
+        do { children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]) }
+        catch { throw OperationFailure.unreadable }
         var total: Int64 = 0
         var subfolders: [ScannedSubfolder] = []
         for childURL in children {
-            guard let values = try? childURL.resourceValues(forKeys: keys), values.isSymbolicLink != true else { continue }
+            try control?.check()
+            let values: URLResourceValues
+            do { values = try childURL.resourceValues(forKeys: keys) } catch { throw OperationFailure.unreadable }
+            guard values.isSymbolicLink != true else { continue }
             if values.isDirectory == true {
                 let name = childURL.lastPathComponent
                 let childPath = relativePath.isEmpty ? name : "\(relativePath)/\(name)"
-                let result = scanDirectory(at: childURL, relativePath: childPath, descriptions: descriptions)
+                let result = try scanDirectory(at: childURL, relativePath: childPath, descriptions: descriptions, control: control)
                 total += result.size
                 subfolders.append(ScannedSubfolder(name: name, relativePath: childPath, size: result.size, description: relativePath.isEmpty ? descriptions[name] : nil, subfolders: result.subfolders))
             } else if values.isRegularFile == true {

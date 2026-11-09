@@ -28,9 +28,9 @@ Download the DMG from [GitHub Releases](https://github.com/13098806890/MacosStor
 1. Enable the items you want to scan in **配置管理** (Configuration Management).
 2. Click **扫描全部** (Scan All) to review storage usage by category.
 3. Read the descriptions and cleanup impact, expand child folders as needed, and select your targets.
-4. Confirm to clean up. Caches and temporary builds move to Trash. Use the dedicated management pages for simulators, runtimes, and command-line tools.
+4. Review the targets and impact in the confirmation sheet before cleanup. Caches and temporary builds move to Trash. Use the dedicated management pages for simulators, runtimes, and command-line tools.
 
-> **Before cleanup:** Caches may need to be downloaded or generated again; quit the related apps first. Simulator device deletion is permanent, so save any data you need beforehand. Scan sizes are estimates and may omit hidden files.
+> **Before cleanup:** Caches may need to be downloaded or generated again; quit the related apps first. Simulator device deletion is permanent, so save any data you need beforehand. Scan sizes are estimates and may omit hidden files. Scans can be cancelled; failed scans and changed targets require a fresh scan before cleanup.
 
 ## Build
 

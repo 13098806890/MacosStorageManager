@@ -76,6 +76,9 @@ final class HomebrewManagerStore {
     private(set) var formulas: [ManagedFormula] = []
     private(set) var searchResults: [String] = []
     private(set) var isBusy = false
+    var operationControl: OperationControl?
+    private(set) var canCancelOperation = false
+    func cancelOperation() { if canCancelOperation { operationControl?.cancel() } }
     private(set) var hasLoaded = false
     private(set) var brewAvailable = false
     private(set) var brewVersion = ""
@@ -92,24 +95,26 @@ final class HomebrewManagerStore {
     func refresh() async {
         guard !isBusy else { return }
         isBusy = true
+        let control = OperationControl(); operationControl = control
+        canCancelOperation = true
+        control.report("等待 Homebrew…")
         errorMessage = nil
-        defer { isBusy = false }
+        defer { isBusy = false; operationControl = nil; canCancelOperation = false }
 
         do {
             let catalog = try await Task.detached(priority: .userInitiated) {
-                try Self.loadCatalog()
+                try Self.loadCatalog(control: control)
             }.value
+            try control.check()
             brewPath = catalog.path
             brewVersion = catalog.version
             formulas = catalog.formulas
             brewAvailable = true
             hasLoaded = true
         } catch {
-            brewPath = nil
-            formulas = []
-            brewAvailable = false
+            // Keep the last complete inventory on cancellation/failure; do not report "not installed".
             hasLoaded = true
-            errorMessage = error.localizedDescription
+            errorMessage = error is CancellationError ? "查询已取消，请刷新后重试。" : error.localizedDescription
         }
     }
 
@@ -126,31 +131,40 @@ final class HomebrewManagerStore {
         }
 
         isBusy = true
+        let control = OperationControl(); operationControl = control
+        canCancelOperation = true
+        control.report("等待 Homebrew…")
         errorMessage = nil
         searchResults = []
-        defer { isBusy = false }
+        defer { isBusy = false; operationControl = nil; canCancelOperation = false }
         do {
             let results = try await Task.detached(priority: .userInitiated) {
-                let output = try Self.run(brewPath: brewPath, arguments: ["search", "--formula", query])
+                let output = try Self.run(brewPath: brewPath, arguments: ["search", "--formula", query], control: control)
                 return output.split(whereSeparator: \.isNewline)
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter(Self.isSafeFormulaName)
                     .uniqued()
                     .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             }.value
+            try control.check()
             searchResults = results
             if results.isEmpty { message = "没有找到匹配的 Homebrew formula。" }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error is CancellationError ? "查询已取消，请刷新后重试。" : error.localizedDescription
         }
     }
 
     func perform(_ action: HomebrewAction) async {
         guard !isBusy, let brewPath, Self.isSafeFormulaName(action.formulaName) else { return }
         isBusy = true
+        let control = OperationControl(); operationControl = control
+        canCancelOperation = true
+        control.report("等待 Homebrew…")
         errorMessage = nil
         message = nil
-        defer { isBusy = false }
+        canCancelOperation = false
+        control.report("正在执行 Homebrew 变更，请勿退出应用…")
+        defer { isBusy = false; operationControl = nil; canCancelOperation = false }
 
         let arguments: [String]
         switch action {
@@ -164,12 +178,14 @@ final class HomebrewManagerStore {
         do {
             let actionName = action.buttonTitle
             _ = try await Task.detached(priority: .userInitiated) {
-                try Self.run(brewPath: brewPath, arguments: arguments)
+                try Self.run(brewPath: brewPath, arguments: arguments, control: control, timeout: 900)
             }.value
             await refreshAfterAction()
             message = "已\(actionName)：\(action.formulaName)"
         } catch {
-            errorMessage = error.localizedDescription
+            let failure = error is CancellationError ? "操作已取消。" : error.localizedDescription
+            await refreshAfterAction()
+            errorMessage = failure + " 请核对刷新后的工具状态；操作可能已部分生效。"
         }
     }
 
@@ -180,31 +196,33 @@ final class HomebrewManagerStore {
     private func refreshAfterAction() async {
         // Keep the busy state owned by the operation and refresh the data in place.
         guard let brewPath else { return }
+        let control = operationControl
         do {
             let catalog = try await Task.detached(priority: .userInitiated) {
-                try Self.loadCatalog(using: brewPath)
+                try Self.loadCatalog(using: brewPath, control: control)
             }.value
             brewVersion = catalog.version
             formulas = catalog.formulas
             brewAvailable = true
             hasLoaded = true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error is CancellationError ? "查询已取消，请刷新后重试。" : error.localizedDescription
         }
     }
 
-    private nonisolated static func loadCatalog(using knownPath: String? = nil) throws -> (path: String, version: String, formulas: [ManagedFormula]) {
+    private nonisolated static func loadCatalog(using knownPath: String? = nil, control: OperationControl? = nil) throws -> (path: String, version: String, formulas: [ManagedFormula]) {
         guard let path = knownPath ?? locateBrew() else { throw HomebrewManagerError.notInstalled }
-        let versionOutput = try run(brewPath: path, arguments: ["--version"])
-        let cellarOutput = try run(brewPath: path, arguments: ["--cellar"])
-        let installedOutput = try run(brewPath: path, arguments: ["list", "--formula", "--versions"])
-        let outdatedOutput = try run(brewPath: path, arguments: ["outdated", "--formula", "--quiet"])
-        let pinnedOutput = try run(brewPath: path, arguments: ["list", "--pinned"])
+        let versionOutput = try run(brewPath: path, arguments: ["--version"], control: control)
+        let cellarOutput = try run(brewPath: path, arguments: ["--cellar"], control: control)
+        let installedOutput = try run(brewPath: path, arguments: ["list", "--formula", "--versions"], control: control)
+        let outdatedOutput = try run(brewPath: path, arguments: ["outdated", "--formula", "--quiet"], control: control)
+        let pinnedOutput = try run(brewPath: path, arguments: ["list", "--pinned"], control: control)
 
         let outdated = Set(outdatedOutput.split(whereSeparator: \.isNewline).map(String.init))
         let pinned = Set(pinnedOutput.split(whereSeparator: \.isNewline).map(String.init))
         let cellar = URL(fileURLWithPath: cellarOutput.trimmingCharacters(in: .whitespacesAndNewlines), isDirectory: true)
-        let formulas = installedOutput.split(whereSeparator: \.isNewline).compactMap { line -> ManagedFormula? in
+        let formulas = try installedOutput.split(whereSeparator: \.isNewline).compactMap { line -> ManagedFormula? in
+            try control?.check()
             let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
             guard let name = parts.first, isSafeFormulaName(name), parts.count > 1 else { return nil }
             let cellarName = name.split(separator: "/").last.map(String.init) ?? name
@@ -212,7 +230,7 @@ final class HomebrewManagerStore {
             return ManagedFormula(
                 name: name,
                 installedVersion: parts.dropFirst().joined(separator: ", "),
-                sizeBytes: directoryAllocatedSize(at: formulaDirectory),
+                sizeBytes: try directoryAllocatedSize(at: formulaDirectory, control: control),
                 isOutdated: outdated.contains(name),
                 isPinned: pinned.contains(name)
             )
@@ -224,28 +242,24 @@ final class HomebrewManagerStore {
         return (path, version, formulas)
     }
 
-    private nonisolated static func loadCatalog() throws -> (path: String, version: String, formulas: [ManagedFormula]) {
-        try loadCatalog(using: nil)
-    }
-
-    private nonisolated static func directoryAllocatedSize(at url: URL) -> Int64? {
+    private nonisolated static func directoryAllocatedSize(at url: URL, control: OperationControl?) throws -> Int64? {
+        try control?.check()
         var isDirectory: ObjCBool = false
+        var failed = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue,
               let enumerator = FileManager.default.enumerator(
                 at: url,
-                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]
-              ) else {
-            return nil
-        }
-
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey],
+                errorHandler: { _, _ in failed = true; return false }
+              ) else { return nil }
         var total: Int64 = 0
         for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]),
-                  values.isSymbolicLink != true,
-                  values.isRegularFile == true else { continue }
+            try control?.check()
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]) else { failed = true; continue }
+            guard values.isSymbolicLink != true, values.isRegularFile == true else { continue }
             total += Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
         }
-        return total
+        return failed ? nil : total
     }
 
     private nonisolated static func locateBrew() -> String? {
@@ -273,28 +287,16 @@ final class HomebrewManagerStore {
     }
 
     @discardableResult
-    private nonisolated static func run(brewPath: String, arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: brewPath)
-        process.arguments = arguments
+    private nonisolated static func run(brewPath: String, arguments: [String], control: OperationControl? = nil, timeout: TimeInterval = 120) throws -> String {
+        control?.report("Homebrew：" + arguments.joined(separator: " "))
         var environment = ProcessInfo.processInfo.environment
         let prefix = URL(fileURLWithPath: brewPath).deletingLastPathComponent().deletingLastPathComponent().path
         environment["PATH"] = "\(prefix)/bin:\(prefix)/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
-        process.environment = environment
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        do {
-            try process.run()
-        } catch {
-            throw HomebrewManagerError.cannotLaunch(error.localizedDescription)
-        }
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw HomebrewManagerError.commandFailed(detail.isEmpty ? "Homebrew 命令退出，状态码 \(process.terminationStatus)。" : detail)
+        let result = try CommandRunner.run(executable: brewPath, arguments: arguments, environment: environment, timeout: timeout, control: control)
+        let output = String(decoding: result.output, as: UTF8.self)
+        guard result.status == 0 else {
+            let detail = String(decoding: result.error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw HomebrewManagerError.commandFailed(detail.isEmpty ? output : detail)
         }
         return output
     }

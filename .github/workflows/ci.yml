@@ -19,6 +19,9 @@ jobs:
       - name: Validate built-in cleanup configuration
         run: python3 scripts/validate_cleanup_rules.py Config/cleanup-rules.json
 
+      - name: Run safety regression tests
+        run: swift test
+
       - name: Build macOS app
         run: >-
           xcodebuild

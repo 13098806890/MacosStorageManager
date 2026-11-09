@@ -109,6 +109,7 @@ private struct CleanupHomeView: View {
     @State private var homebrewStore = HomebrewManagerStore()
     @State private var selectedCategory: String? = "全部"
     @State private var isFullScanInProgress = false
+    @State private var fullScanTask: Task<Void, Never>?
     @State private var showingCleanupConfirmation = false
     @State private var showingConfigurationImporter = false
     @State private var expandedSubfolderRuleIDs: Set<String> = []
@@ -232,13 +233,14 @@ private struct CleanupHomeView: View {
                 }
             }
         }
-        .alert("确认移到废纸篓？", isPresented: $showingCleanupConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("移到废纸篓", role: .destructive) {
-                Task { await store.cleanScannedRules() }
-            }
-        } message: {
-            Text(store.cleanupConfirmationText)
+        .sheet(isPresented: $showingCleanupConfirmation) {
+            CleanupConfirmationSheet(items: store.cleanupConfirmationItems, summary: store.cleanupConfirmationText,
+                isBusy: store.isBusy,
+                cancel: { showingCleanupConfirmation = false },
+                confirm: {
+                    showingCleanupConfirmation = false
+                    Task { await store.cleanScannedRules() }
+                })
         }
         .alert("操作结果", isPresented: Binding(
             get: { store.message != nil },
@@ -255,6 +257,22 @@ private struct CleanupHomeView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                if let control = store.scanControl ?? simulatorStore.scanControl ?? temporaryBuildStore.scanControl ?? homebrewStore.operationControl ?? simulatorStore.commandControl {
+                    TimelineView(.periodic(from: .now, by: 0.3)) { _ in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(control.status).lineLimit(2)
+                            Text("已用 \(Int(Date().timeIntervalSince(control.startedAt))) 秒").foregroundStyle(.secondary)
+                        }.font(.caption).frame(maxWidth: 260).help(control.status)
+                    }
+                    if store.scanControl != nil || simulatorStore.scanControl != nil || temporaryBuildStore.scanControl != nil || homebrewStore.canCancelOperation {
+                        Button("取消扫描/查询") {
+                            fullScanTask?.cancel()
+                            store.cancelScan(); simulatorStore.cancelScan(); temporaryBuildStore.cancelScan(); homebrewStore.cancelOperation()
+                        }
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 let isScanning = isFullScanInProgress || (selectedCategory == "模拟器管理" ? simulatorStore.isBusy : (selectedCategory == "临时构建" ? temporaryBuildStore.isBusy : (selectedCategory == "命令行工具" ? homebrewStore.isBusy : store.isBusy)))
                 let isConfiguration = selectedCategory == "配置管理"
@@ -302,6 +320,7 @@ private struct CleanupHomeView: View {
                         showingCleanupConfirmation = true
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(isFullScanInProgress || store.isBusy || simulatorStore.isBusy || temporaryBuildStore.isBusy || homebrewStore.isBusy)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -321,13 +340,16 @@ private struct CleanupHomeView: View {
         guard !isFullScanInProgress, store.reloadBundledConfiguration() else { return }
         let rulesToScan = availableRules
         isFullScanInProgress = true
-        Task {
+        fullScanTask = Task {
+            defer { isFullScanInProgress = false; fullScanTask = nil }
             await store.scanAll(rules: rulesToScan)
+            guard !Task.isCancelled else { return }
             await simulatorStore.scan()
+            guard !Task.isCancelled else { return }
             await temporaryBuildStore.scan()
+            guard !Task.isCancelled else { return }
             await homebrewStore.refresh()
             store.refreshCleanupLog()
-            isFullScanInProgress = false
         }
     }
 
@@ -1431,13 +1453,14 @@ private struct TemporaryBuildManagerView: View {
             }
         }
         .navigationTitle("临时构建")
-        .confirmationDialog("确认移到废纸篓？", isPresented: $showingTrashConfirmation, titleVisibility: .visible) {
-            Button("移到废纸篓", role: .destructive) {
-                Task { await store.trashSelected() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(store.confirmationText)
+        .sheet(isPresented: $showingTrashConfirmation) {
+            CleanupConfirmationSheet(items: store.cleanupConfirmationItems, summary: store.confirmationText,
+                isBusy: store.isBusy,
+                cancel: { showingTrashConfirmation = false },
+                confirm: {
+                    showingTrashConfirmation = false
+                    Task { await store.trashSelected() }
+                })
         }
         .alert("临时构建清理结果", isPresented: Binding(
             get: { store.message != nil },
@@ -1712,5 +1735,45 @@ private struct ScannedSubfolderRow: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+    }
+}
+
+@MainActor
+private struct CleanupConfirmationSheet: View {
+    let items: [CleanupConfirmationItem]
+    let summary: String
+    let isBusy: Bool
+    let cancel: () -> Void
+    let confirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("确认移到废纸篓？").font(.title2.bold())
+            Text(summary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(item.title).bold()
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: item.bytes, countStyle: .file))
+                            }
+                            Text(item.path).font(.caption.monospaced()).textSelection(.enabled)
+                            Text("清理影响：" + item.impact).font(.callout).foregroundStyle(.secondary)
+                            Text("操作：移到废纸篓").font(.caption)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            Text("清理前会重新检查内容；有变化的目标会跳过，需重新扫描。移入废纸篓不代表立即释放空间。")
+                .font(.footnote).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("取消", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button("确认移到废纸篓", role: .destructive, action: confirm).disabled(isBusy || items.isEmpty)
+            }
+        }.padding(24).frame(width: 640, height: 540)
     }
 }
