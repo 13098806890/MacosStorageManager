@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.library(name: "CleanupCore", targets: ["CleanupCore"])],
     targets: [
-        .target(name: "CleanupCore", path: "Sources", exclude: ["CleanUpForMacOSApp.swift"]),
+        .target(name: "CleanupCore", path: "Sources", exclude: ["App/CleanUpForMacOSApp.swift", "Features/Cleanup/CleanupViews.swift", "Features/Homebrew/HomebrewManagerView.swift", "Features/Simulator/SimulatorManagerViews.swift"]),
         .testTarget(name: "CleanupCoreTests", dependencies: ["CleanupCore"], path: "Tests")
     ]
 )

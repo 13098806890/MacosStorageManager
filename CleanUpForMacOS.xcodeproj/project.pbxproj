@@ -13,6 +13,11 @@
 		A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* HomebrewManagerStore.swift */; };
 		A10000000000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Assets.xcassets */; };
 		A10000000000000000000007 = {isa = PBXBuildFile; fileRef = A20000000000000000000008; };
+		A10000000000000000000008 /* CleanupViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* CleanupViews.swift */; };
+		A10000000000000000000009 /* HomebrewManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* HomebrewManagerView.swift */; };
+		A1000000000000000000000A /* SimulatorManagerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* SimulatorManagerStore.swift */; };
+		A1000000000000000000000B /* SimulatorManagerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* SimulatorManagerViews.swift */; };
+		A1000000000000000000000C /* TemporaryBuildManagerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* TemporaryBuildManagerStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,13 +29,24 @@
 		A20000000000000000000006 /* HomebrewManagerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewManagerStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets/Assets.xcassets"; sourceTree = "<group>"; };
 		A20000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationSupport.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* CleanupViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupViews.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* HomebrewManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewManagerView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* SimulatorManagerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorManagerStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* SimulatorManagerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorManagerViews.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D /* TemporaryBuildManagerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryBuildManagerStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		A30000000000000000000001 = {isa = PBXGroup; children = (A30000000000000000000002 /* Sources */, A30000000000000000000003 /* Config */, A20000000000000000000007 /* Assets.xcassets */, A30000000000000000000004 /* Products */,); sourceTree = "<group>"; };
-		A30000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (A20000000000000000000008, A20000000000000000000001 /* CleanUpForMacOSApp.swift */, A20000000000000000000002 /* CleanupStore.swift */, A20000000000000000000006 /* HomebrewManagerStore.swift */,); path = Sources; sourceTree = "<group>"; };
+		A30000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (A20000000000000000000008 /* OperationSupport.swift */, A30000000000000000000005 /* App */, A30000000000000000000006 /* Features */,); path = Sources; sourceTree = "<group>"; };
 		A30000000000000000000003 /* Config */ = {isa = PBXGroup; children = (A20000000000000000000003 /* cleanup-rules.json */, A20000000000000000000005 /* PrivacyInfo.xcprivacy */,); path = Config; sourceTree = "<group>"; };
 		A30000000000000000000004 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000004 /* CleanUpForMacOS.app */,); name = Products; sourceTree = "<group>"; };
+		A30000000000000000000005 /* App */ = {isa = PBXGroup; children = (A20000000000000000000001 /* CleanUpForMacOSApp.swift */,); path = App; sourceTree = "<group>"; };
+		A30000000000000000000006 /* Features */ = {isa = PBXGroup; children = (A30000000000000000000007 /* Cleanup */, A30000000000000000000008 /* Homebrew */, A30000000000000000000009 /* Simulator */, A3000000000000000000000A /* TemporaryBuilds */,); path = Features; sourceTree = "<group>"; };
+		A30000000000000000000007 /* Cleanup */ = {isa = PBXGroup; children = (A20000000000000000000002 /* CleanupStore.swift */, A20000000000000000000009 /* CleanupViews.swift */,); path = Cleanup; sourceTree = "<group>"; };
+		A30000000000000000000008 /* Homebrew */ = {isa = PBXGroup; children = (A20000000000000000000006 /* HomebrewManagerStore.swift */, A2000000000000000000000A /* HomebrewManagerView.swift */,); path = Homebrew; sourceTree = "<group>"; };
+		A30000000000000000000009 /* Simulator */ = {isa = PBXGroup; children = (A2000000000000000000000B /* SimulatorManagerStore.swift */, A2000000000000000000000C /* SimulatorManagerViews.swift */,); path = Simulator; sourceTree = "<group>"; };
+		A3000000000000000000000A /* TemporaryBuilds */ = {isa = PBXGroup; children = (A2000000000000000000000D /* TemporaryBuildManagerStore.swift */,); path = TemporaryBuilds; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -46,7 +62,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000007, A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */, A10000000000000000000002 /* CleanupStore.swift in Sources */, A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001 /* CleanUpForMacOSApp.swift in Sources */, A10000000000000000000002 /* CleanupStore.swift in Sources */, A10000000000000000000005 /* HomebrewManagerStore.swift in Sources */, A10000000000000000000007 /* OperationSupport.swift in Sources */, A10000000000000000000008 /* CleanupViews.swift in Sources */, A10000000000000000000009 /* HomebrewManagerView.swift in Sources */, A1000000000000000000000A /* SimulatorManagerStore.swift in Sources */, A1000000000000000000000B /* SimulatorManagerViews.swift in Sources */, A1000000000000000000000C /* TemporaryBuildManagerStore.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */

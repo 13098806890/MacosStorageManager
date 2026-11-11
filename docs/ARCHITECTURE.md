@@ -1,46 +1,69 @@
 # Architecture overview
 
-This document describes the current app boundaries for contributors. Keep the user-driven cleanup flow and its safety checks intact when changing implementation details.
+This document maps the app's current feature layout and the boundaries each feature must preserve. The project is a native SwiftUI macOS app with no external package dependencies.
 
-## Main pieces
+## Source layout
 
-- `Sources/CleanUpForMacOSApp.swift` contains the SwiftUI app, navigation, cleanup/configuration/history views, and simulator-management views.
-- `Sources/CleanupStore.swift` contains cleanup models and stores, configuration import/export, path validation, scanning, simulator inventory/deletion, local history, and disk history.
-- `Sources/HomebrewManagerStore.swift` owns the Homebrew formula inventory and fixed Homebrew operations. The CLI manager only searches and manages formulae; it does not execute shell commands or read commands from cleanup profiles.
-- `Sources/OperationSupport.swift` provides cooperative cancellation, bounded command output with deadlines, and in-memory metadata fingerprints for stale-target rejection.
-- `Config/cleanup-rules.json` is the bundled single-role programmer profile. Imported profiles are stored under the user's Application Support directory and are not written back to this file.
+```text
+Sources/
+├── App/
+│   └── CleanUpForMacOSApp.swift
+├── OperationSupport.swift
+└── Features/
+    ├── Cleanup/
+    │   ├── CleanupStore.swift
+    │   └── CleanupViews.swift
+    ├── Homebrew/
+    │   ├── HomebrewManagerStore.swift
+    │   └── HomebrewManagerView.swift
+    ├── Simulator/
+    │   ├── SimulatorManagerStore.swift
+    │   └── SimulatorManagerViews.swift
+    └── TemporaryBuilds/
+        └── TemporaryBuildManagerStore.swift
+```
+
+- `App/CleanUpForMacOSApp.swift` creates the window and coordinates navigation and feature stores.
+- `Features/Cleanup/` owns cleanup configuration and scan models, profile import/export, approved-path parsing, cache scanning, Trash operations, cleanup history, disk history, and related views.
+- `Features/Homebrew/` owns the Homebrew inventory, fixed actions, and management UI. Formula names are validated; profile data cannot supply commands.
+- `Features/Simulator/` owns Simulator inventory, device/runtime actions, and their UI.
+- `Features/TemporaryBuilds/` owns `/private/tmp` inventory and cleanup for eligible temporary build directories. It excludes the running app's bundle from inventory and checks again before moving a target to Trash.
+- `OperationSupport.swift` provides cooperative cancellation, bounded process output with deadlines, and in-memory metadata fingerprints used to detect changed targets.
+- `Config/cleanup-rules.json` is the bundled single-role profile. Imported profiles are kept in the user's Application Support directory and are not written back to this file.
 - `Config/PrivacyInfo.xcprivacy` declares the app's privacy manifest.
 
-## Cleanup flow
+The Xcode project uses explicit file references so it remains compatible with the documented Xcode 15 build baseline. Add each Swift source file both to its feature group and to the target's Sources build phase in `CleanUpForMacOS.xcodeproj/project.pbxproj`. `Package.swift` compiles production stores and support code for safety regression tests while excluding the app entry point and UI files.
 
-1. The user selects a profile rule and starts a scan.
-2. `CleanupRule.resolvedPath` accepts only the supported literal `$HOME/` path syntax, an approved runtime root, and a canonical target inside the current user's home directory.
-3. The scanner reports estimated sizes and visible child directories. Read failures invalidate that rule rather than returning zero; cancellation prevents unfinished results from being used. It does not display a file inventory or infer file contents. Metadata fingerprints include hidden entries for change detection, but hidden files remain excluded from the ordinary cache size estimate.
-4. The user selects a rule or displayed child directory and reviews a scrollable confirmation with each target, estimated size, operation, and impact. Parent/child selections are mutually exclusive.
-5. Before moving a directory to macOS Trash, compare its metadata fingerprint with the completed scan and repeat path/symlink checks. Changed or unreadable targets are skipped and must be scanned and confirmed again. The local JSONL history records the result and resolved local path. This is not an atomic filesystem transaction: changes after the final check remain possible.
+## Cleanup flow and safety boundary
 
-Fingerprints hash entry names and filesystem metadata, not file contents, and stay in memory. Scanning compares the root fingerprint before and after its size walk to reject changing trees. Temporary-build cleanup also compares a scan fingerprint and verifies ownership, symlinks, and compiler-artifact criteria, including hidden descendants.
+1. The user enables profile rules and starts a scan.
+2. `CleanupRule.resolvedPath` accepts only literal `$HOME/` syntax with static components, an approved runtime root, and a canonical target inside the current user's home directory.
+3. The scanner reports estimated sizes and visible child directories. Read failures invalidate that rule; cancellation prevents unfinished results from being used. It does not display a file inventory or infer file contents. Metadata fingerprints include hidden entries for change detection, while hidden files remain excluded from the ordinary cache size estimate.
+4. The user chooses a rule or displayed child directory and reviews a confirmation sheet listing the targets, estimated sizes, actions, and impacts. Parent and child selections are mutually exclusive.
+5. Before moving a directory to macOS Trash, the app compares its metadata fingerprint with the completed scan and repeats path and symlink checks. Changed or unreadable targets are skipped and need a fresh scan and confirmation. Local JSONL history records the result and resolved path. This is not an atomic filesystem transaction; changes after the final check remain possible.
 
-Imported configuration is data, never executable behavior. It cannot add approved roots or commands. Do not weaken the root allowlist, symlink checks, explicit confirmation, or Trash-based cleanup to make a rule easier to contribute.
+Fingerprints hash entry names and filesystem metadata, not file contents, and stay in memory. Scanning compares the root fingerprint before and after its size walk to reject changing trees. Temporary-build cleanup also compares a scan fingerprint and verifies ownership, symlinks, compiler-artifact criteria, and hidden descendants.
 
-## Simulator boundary
+Imported configuration is data, never executable behavior. It cannot add approved roots or commands. Preserve the root allowlist, home-boundary and symlink checks, explicit confirmation, and Trash-based cleanup. Do not add automatic or scheduled cleanup. See [`AGENTS.md`](../AGENTS.md), [`AI_RULE_AUTHORING.md`](AI_RULE_AUTHORING.md), and [`SAFETY_VALIDATION.md`](SAFETY_VALIDATION.md) before changing cleanup paths or safety behavior.
 
-The simulator manager obtains device and runtime inventory through fixed `xcrun simctl` commands. It can delete a user-confirmed simulator device after refreshing and validating its state. Device deletion is permanent. Runtime removal uses a freshly validated fixed `simctl runtime delete` call after confirming that no devices reference it. Installation belongs to Xcode Components; the app must not manipulate runtime bundles directly.
+## Simulator management
 
-## Homebrew CLI manager
+The simulator manager obtains inventory using fixed `xcrun simctl` commands. A user-confirmed device deletion refreshes and validates device state before permanently deleting the device. Runtime removal uses a freshly validated fixed `simctl runtime delete` call after confirming no devices still reference it. Xcode Components manages runtime installation; the app does not manipulate runtime bundles directly.
 
-The manager detects the standard Apple Silicon and Intel executable locations (`/opt/homebrew/bin/brew` and `/usr/local/bin/brew`). It invokes Homebrew directly with fixed subcommands and validated formula identifiers; never route arguments through a shell or profile configuration. Inventory and search are user initiated. Every install, upgrade, pin/unpin, and uninstall requires an in-app confirmation. Uninstall uses Homebrew's default dependency behavior. Version control is limited to Homebrew's installed version and pinning support; arbitrary historical-version rollback is not promised.
+## Homebrew manager
 
-## Local data
+The manager detects the standard Apple Silicon and Intel executable locations (`/opt/homebrew/bin/brew` and `/usr/local/bin/brew`). It invokes Homebrew directly with fixed subcommands and validated formula identifiers; it never routes arguments through a shell or cleanup profile. Inventory and search are user initiated. Every install, upgrade, pin/unpin, and uninstall requires an in-app confirmation. Uninstall uses Homebrew's default dependency behavior. The app does not provide arbitrary historical-version rollback.
 
-Profiles, disk history, and cleanup history remain in local Application Support storage. Cleanup history contains resolved absolute paths. Never commit it, include it in a screenshot, or paste it into a public issue without redaction.
+## Local data and privacy
+
+Profiles, disk history, and cleanup history remain in local Application Support storage. Cleanup history contains resolved absolute paths. Never commit it, include it in screenshots, or paste it into a public issue without redaction.
 
 ## Contributor checks
 
-The macOS CI job validates the bundled profile's static structure and builds the app. The validator cannot prove a directory is safe and intentionally cannot approve runtime roots; those require evidence and maintainer review. `swift test` runs the `CleanupCoreTests` Swift Package target against production store/helper sources without starting the UI. CI runs these tests before building the app. Fixtures are isolated disposable directories; tests never clean configured user directories or delete simulators. See [safety validation](SAFETY_VALIDATION.md).
+CI validates the bundled profile, runs `swift test` against production store/support code, and builds the macOS app. The validator cannot prove a directory is safe and does not replace evidence or maintainer review. Regression tests use isolated disposable fixtures and do not clean configured user directories or delete simulators.
 
 ## Long-running work
 
-Only scans and read-only Homebrew queries expose cancellation. Cooperative tokens are checked during directory traversal and between commands; a cancelled full scan does not start later categories. The UI polls a bounded, home-redacted output tail and elapsed time. Homebrew modifications deliberately have no cancel button.
+Scans and read-only Homebrew queries expose cancellation. Cooperative tokens are checked during directory traversal and between commands; cancelling a full scan prevents later categories from starting. The UI polls a bounded, home-redacted output tail and elapsed time. Homebrew modifications deliberately have no cancel button.
 
-The shared process runner drains stdout/stderr independently without blocking, limits captured output, and enforces deadlines (120 seconds per inventory/simulator command; 900 seconds per Homebrew modification). On timeout/cancellation it requests termination and escalates after two seconds. It signals a child process group only if that group is owned by the launched process; detached descendants are not guaranteed to stop. A stopped modifying command may already have changed state. Homebrew refreshes inventory after failure; users must inspect state before retrying. No operation is described as rolled back.
+The shared process runner drains stdout and stderr independently without blocking, limits captured output, and enforces deadlines (120 seconds per inventory/Simulator command; 900 seconds per Homebrew modification). On timeout or cancellation it requests termination and escalates after two seconds. It signals a child process group only if that group is owned by the launched process; detached descendants are not guaranteed to stop. A stopped modifying command may already have changed state. Homebrew refreshes inventory after failure; users must inspect state before retrying. No operation is described as rolled back.
